@@ -114,9 +114,9 @@
                         The list is hermes-agent model-provider plugins plus Hermes overlays
                         that have no plugin (SuperGrok is xai-oauth). API-key vendors: paste
                         llm.apiKey. OAuth vendors (openai-codex ChatGPT/Codex, xai-oauth
-                        SuperGrok, nous, anthropic Claude, …): Log in below (writes auth.json
-                        as user hermes). Custom / Ollama / vLLM: pick custom, set baseUrl, and
-                        paste an API key if the endpoint needs one.
+                        SuperGrok, nous, …): Log in below (writes auth.json as user hermes).
+                        Anthropic is API-key only in this editor. Custom / Ollama / vLLM: pick
+                        custom, set baseUrl, and paste an API key if the endpoint needs one.
                       '';
                     };
 

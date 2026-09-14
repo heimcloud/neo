@@ -43,7 +43,7 @@
         - Required: `services.hermes.dashboardPassword` (Generate helper); optional `gatewayToken`, Telegram bot token
         - LLM: `services.hermes.llm` — one providerAuth editor: pick provider, paste API key and/or log in with OAuth, set model
         - API-key plugins (`xai`, `openrouter`, …): set `llm.apiKey` (mapped to that plugin's env var)
-        - OAuth (`openai-codex` ChatGPT/Codex, `xai-oauth` SuperGrok, `nous`, `anthropic` Claude, …): Neo UI Log in / Refresh writes `auth.json` as user hermes. Fallback:
+        - OAuth (`openai-codex` ChatGPT/Codex, `xai-oauth` SuperGrok, `nous`, …): Neo UI Log in / Refresh writes `auth.json` as user hermes. Anthropic is API-key (`llm.apiKey`). Fallback:
           `sudo -u hermes env HERMES_HOME=<stateDir>/.hermes hermes auth add <provider>`
         - Custom endpoint: `provider = "custom"`, set `baseUrl` and optional `apiKey`
         - Leave `provider` / `model` empty so Nix does not overwrite model.*

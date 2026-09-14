@@ -3,7 +3,8 @@
 # Source of truth (eval-time parse, no IFD; Hermes has no flake output for this):
 #   - plugins/model-providers/*/__init__.py — ProviderProfile
 #   - hermes_cli/providers.py HERMES_OVERLAYS — ids with no plugin (xai-oauth)
-#   - hermes_cli/web_server.py _OAUTH_PROVIDER_CATALOG — dashboard flow + name
+#   - hermes_cli/web_server_oauth.py _OAUTH_PROVIDER_CATALOG — dashboard flow + name
+#     (older hermes-agent: hermes_cli/web_server.py)
 #   - hermes_cli/models.py CANONICAL_PROVIDERS labels + _XAI_STATIC_FALLBACK
 #
 # Plugin auth_type is not the dashboard flow (openai-codex / minimax-oauth
@@ -22,6 +23,7 @@
   providersDir = hermesSrc + "/plugins/model-providers";
   overlaysPy = hermesSrc + "/hermes_cli/providers.py";
   modelsPy = hermesSrc + "/hermes_cli/models.py";
+  webServerOauthPy = hermesSrc + "/hermes_cli/web_server_oauth.py";
   webServerPy = hermesSrc + "/hermes_cli/web_server.py";
 
   isList = builtins.isList;
@@ -179,11 +181,16 @@
     else modelsFromTuple inner;
 
   # Dashboard cards: id / name / flow. Slice between the first two mentions
-  # of the marker so we do not scan the rest of web_server.py.
+  # of the marker so we do not scan the rest of the file. Hermes moved the
+  # catalog from web_server.py to web_server_oauth.py.
   oauthCatalogRows = let
+    catalogFile =
+      if builtins.pathExists webServerOauthPy
+      then webServerOauthPy
+      else webServerPy;
     content =
-      if builtins.pathExists webServerPy
-      then builtins.readFile webServerPy
+      if builtins.pathExists catalogFile
+      then builtins.readFile catalogFile
       else "";
     # split() with no capture groups inserts [] for each match; keep the
     # string between the first two mentions (the catalog tuple).
@@ -230,14 +237,22 @@
 
   deriveFlow = p: let
     catalogFlow = oauthFlows.${p.name} or null;
+    fromAuth =
+      if p.authType == "oauth_device_code"
+      then "device_code"
+      else if builtins.elem p.authType ["oauth_external" "copilot" "external_process"]
+      then "external"
+      else null;
   in
-    if catalogFlow != null
+    # Catalog is the dashboard UX, but it also lists API-key status cards
+    # (anthropic) as flow=external. Those are not model.provider OAuth —
+    # Claude subscription login is the synthetic claude-code row, which we
+    # do not add as a provider. Only trust catalog flow for real OAuth.
+    if catalogFlow == "pkce" || catalogFlow == "device_code"
     then catalogFlow
-    else if p.authType == "oauth_device_code"
-    then "device_code"
-    else if builtins.elem p.authType ["oauth_external" "copilot" "external_process"]
-    then "external"
-    else null;
+    else if catalogFlow == "external" && fromAuth != null
+    then catalogFlow
+    else fromAuth;
 
   toEntry = p: let
     id = p.name;
@@ -288,10 +303,11 @@ in
   assert envVars ? openrouter && envVars.openrouter == "OPENROUTER_API_KEY";
   assert catalogById ? openai-codex && catalogById.openai-codex.hasOauth;
   assert catalogById ? xai-oauth && catalogById.xai-oauth.hasOauth && !catalogById.xai-oauth.hasApiKey;
-  assert catalogById ? anthropic && catalogById.anthropic.hasApiKey && catalogById.anthropic.hasOauth;
+  assert catalogById ? anthropic && catalogById.anthropic.hasApiKey && !catalogById.anthropic.hasOauth;
+  assert !(catalogById ? claude-code);
   assert catalogById.openai-codex.oauthFlow == "device_code";
   assert catalogById.xai-oauth.oauthFlow == "device_code";
-  assert catalogById.anthropic.oauthFlow == "pkce";
+  assert catalogById.anthropic.oauthFlow == null;
   assert catalogById ? custom && catalogById.custom.hasApiKey && catalogById.custom.needsBaseUrl && catalogById.custom.envVar == null;
   assert builtins.length (lib.attrNames envVars) > 20; {
     libExtensions.hermesProviders = {

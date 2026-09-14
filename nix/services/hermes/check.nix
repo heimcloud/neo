@@ -96,6 +96,10 @@
         echo "FAIL hermes provider catalog must parse dashboard OAuth flows from hermes-agent" >&2
         exit 1
       fi
+      if ! grep -q 'web_server_oauth.py' "$catalog"; then
+        echo "FAIL hermes provider catalog must read _OAUTH_PROVIDER_CATALOG from web_server_oauth.py" >&2
+        exit 1
+      fi
       if ! grep -q 'HERMES_OVERLAYS' "$catalog"; then
         echo "FAIL hermes provider catalog must parse Hermes overlays (xai-oauth SuperGrok)" >&2
         exit 1
