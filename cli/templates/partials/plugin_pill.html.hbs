@@ -1,0 +1,10 @@
+{{!-- Plugin identity pill. Long names stay one line and ticker like an ad board. --}}
+<span class="badge badge-outline {{size}} font-mono plugin-pill{{#if extraClass}} {{extraClass}}{{/if}}"
+      title="{{url}}">
+  <span class="plugin-pill-clip">
+    <span class="plugin-pill-track">
+      <span class="plugin-pill-text">{{display}}</span>
+      <span class="plugin-pill-text" aria-hidden="true">{{display}}</span>
+    </span>
+  </span>
+</span>

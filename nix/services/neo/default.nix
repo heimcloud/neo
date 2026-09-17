@@ -43,6 +43,9 @@
           environment = {
             NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
             SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
+            # neo-web PATH is a closed list (no /run/current-system/sw/bin).
+            # Container pull/inspect must not PATH-search a bare `docker`.
+            DOCKER_BINARY_PATH = "${config.virtualisation.docker.package}/bin/docker";
             ROCKET_ADDRESS = "127.0.0.1";
             ROCKET_PORT = toString cfg.port;
             NEO_HELPER_BASH = "${pkgs.bash}/bin/bash";
@@ -66,6 +69,7 @@
             pkgs.jq
             pkgs.apacheHttpd
             pkgs.whois
+            config.virtualisation.docker.package
           ];
         };
 

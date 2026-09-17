@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, BufReader as AsyncBufReader};
 use tokio::process::Command as AsyncCommand;
 
 use super::super::types::AppConfig;
-use super::super::util::{status_err, status_ok, status_pulling, sudo_cmd};
+use super::super::util::{docker_bin, status_err, status_ok, status_pulling, sudo_cmd};
 use super::control::{
     broadcast_unit_update, broadcast_update_out, end_pull, schedule_unit_refresh_burst,
 };
@@ -57,7 +57,8 @@ pub async fn run_container_pull(unit: String, cname: String, config: Arc<AppConf
         broadcast_update_out(&unit, &inner, &title, &config);
     };
 
-    let inspect = AsyncCommand::new("docker")
+    let docker = docker_bin();
+    let inspect = AsyncCommand::new(&docker)
         .args(["inspect", "--format", "{{.Config.Image}}", &cname])
         .output()
         .await;
@@ -87,7 +88,7 @@ pub async fn run_container_pull(unit: String, cname: String, config: Arc<AppConf
         push(inner, title);
     }
 
-    let mut child = match AsyncCommand::new("docker")
+    let mut child = match AsyncCommand::new(&docker)
         .args(["pull", &img])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

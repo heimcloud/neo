@@ -59,6 +59,65 @@ body.neo-config {
 }
 
 /*
+ * Plugin name pills: one line, clipped to the card/header slot.
+ * Overflowing labels duplicate and ticker (ad-board) via .is-overflow from configuration.js.
+ */
+.plugin-pill {
+  justify-content: flex-start;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.plugin-pill--header {
+  max-width: 11rem;
+}
+
+.plugin-pill-clip {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.plugin-pill-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.25em;
+  white-space: nowrap;
+}
+
+.plugin-pill-text {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.plugin-pill-track > [aria-hidden="true"] {
+  display: none;
+}
+
+.plugin-pill.is-overflow .plugin-pill-track > [aria-hidden="true"] {
+  display: inline-block;
+}
+
+.plugin-pill.is-overflow .plugin-pill-track {
+  animation: plugin-pill-ticker var(--plugin-pill-duration, 8s) linear infinite;
+}
+
+@keyframes plugin-pill-ticker {
+  to {
+    transform: translateX(calc(-50% - 0.625em));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plugin-pill.is-overflow .plugin-pill-track {
+    animation: none;
+  }
+}
+
+/*
  * Fused sticky chrome: one continuous glass plate (#config-fused-glass) carries
  * backdrop-filter so blur is not split between two layers. Bars go transparent
  * and sit above the plate (pointer events stay on the controls).

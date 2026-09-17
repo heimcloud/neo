@@ -127,9 +127,9 @@
           title="Configure {{name}}">
           <div class="card-body p-2 sm:p-3 gap-1.5 sm:gap-2 items-center text-center min-h-[6.25rem] sm:min-h-[7.5rem]">
             {{#if plugins}}
-              <div class="absolute top-1 left-1 z-10 flex flex-wrap gap-0.5 max-w-[70%] pointer-events-none">
+              <div class="absolute top-1 left-1 right-8 z-10 flex flex-wrap gap-0.5 min-w-0 overflow-hidden pointer-events-none">
                 {{#each plugins}}
-                  <span class="badge badge-outline badge-xs font-mono" title="{{url}}">{{display}}</span>
+                  {{> partials/plugin_pill url=url display=display size="badge-xs"}}
                 {{/each}}
               </div>
             {{/if}}
