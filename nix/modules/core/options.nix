@@ -39,7 +39,7 @@
       options.neo.core.hashedLinuxPassword = mkOption {
         type = types.str;
         default = "";
-        description = "Generate the hash using the web UI \"Hash password\" helper, or `mkpasswd -m sha-512` / `openssl passwd -6`. This sets the password for the user without exposing plaintext.";
+        description = "Optional SHA-512 hash for the admin and homeserver users (web UI \"Hash password\" helper, or `mkpasswd -m sha-512` / `openssl passwd -6`). Empty (default) locks password login: SSH with authorizedKeys. Set this only if you want a console/sudo password. There is no shipped default password.";
         rank = 20;
         helper = lib.neo.helpers.mkpasswdSha512;
       };

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::env;
 use std::path::PathBuf;
@@ -154,6 +154,9 @@ fn run(cli: Cli) -> Result<()> {
                     "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_UPDATE_SUFFIX,NEO_SECTION,NEO_PROFILE",
                 )
                 .args(env::args()),
+        )
+        .context(
+            "neo must run as the homeserver user on a full install. SSH as homeserver@<host> (your authorizedKeys), or set core.hashedLinuxPassword so sudo can switch from admin. There is no default Linux password.",
         )?;
         return Ok(());
     }

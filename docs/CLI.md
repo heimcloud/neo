@@ -26,6 +26,8 @@ neo --help
 
 On a full install (`/etc/neo/settings.toml` present), commands re-exec as the `homeserver` user when needed and default to the **server** profile (`neo-cli.server.configPath`). Laptop / `nix run` defaults to the **local** profile (`neo-cli.local.configPath`, default `./build`). Shared keys (template, neoInput, git identity, …) live under `[neo-cli]`.
 
+SSH to a finished host as **`homeserver@…`** for `neo` (or **`admin@…`** if you set `core.hashedLinuxPassword`). Same keys on both; no default password. See [INSTALL.md — first login](INSTALL.md#first-login). `nix run github:madebydamo/neo#neo` is currently **`x86_64-linux` only** (Mac / other laptops: [INSTALL.md](INSTALL.md#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture)).
+
 ## Commands (summary)
 
 | Command | Role |

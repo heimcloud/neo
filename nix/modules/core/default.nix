@@ -51,7 +51,12 @@
       createHome = true;
       extraGroups = ["docker" "wheel"];
       openssh.authorizedKeys.keys = config.neo.core.ssh.authorizedKeys;
-      hashedPassword = config.neo.core.hashedLinuxPassword;
+      # Empty means locked (no password login). SSH keys are the intended login.
+      # A set hash is for local console / sudo, not a shipped default password.
+      hashedPassword =
+        if config.neo.core.hashedLinuxPassword == ""
+        then "!"
+        else config.neo.core.hashedLinuxPassword;
     };
 
     # Allow other neo hosts to use this machine as a remote Nix builder over SSH as homeserver.

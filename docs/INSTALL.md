@@ -2,14 +2,15 @@
 
 Neo aims to be usable without a sysadmin background. **After setup, you mostly use the web UI.** This page covers getting the machine installed once; the command snippets below are the bootstrap steps—you will not live in the terminal day to day.
 
-Two paths:
+Two paths, plus a fallback when the laptop cannot build the system:
 
 | Path | When to use |
 |------|-------------|
 | **[A — Machine already runs NixOS](#path-a--machine-already-runs-nixos)** | Fresh or existing NixOS host you want to turn into Neo |
-| **[B — Install from your laptop](#path-b--install-from-your-laptop-nixos-anywhere)** | Any suitable Linux (or installer) over SSH; prepare config locally, install remotely |
+| **[B — Install from your laptop](#path-b--install-from-your-laptop-nixos-anywhere)** | Linux laptop that can build `x86_64-linux`; prepare config locally, install remotely with nixos-anywhere |
+| **[Laptop cannot build](#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture)** | Mac, architecture mismatch, or a live USB with too little disk — build **on the target** |
 
-Also: [what you need](#what-you-need), [minimal starter config](#minimal-starter-config), [disks (Disko)](#automatic-disk-layout-disko), [no public IP](#no-public-ip-streamproxy), [per-service ingress](#per-service-ingress), [after install](#after-install), [learning links](#learning-links).
+Also: [what you need](#what-you-need), [first login](#first-login), [minimal starter config](#minimal-starter-config), [disks (Disko)](#automatic-disk-layout-disko), [no public IP](#no-public-ip-streamproxy), [per-service ingress](#per-service-ingress), [after install](#after-install), [learning links](#learning-links).
 
 ---
 
@@ -20,7 +21,9 @@ Also: [what you need](#what-you-need), [minimal starter config](#minimal-starter
 - A computer (or VPS) for the homeserver  
 - A **domain name**  
 - Either a **public IP** with ports **80 and 443** reachable, **or** access to a **streamproxy** on a public machine (see [below](#no-public-ip-streamproxy))  
-- SSH access during install  
+- SSH access during install, using **your** SSH public key in `core.ssh.authorizedKeys`  
+
+There is **no default Linux password**. After install, SSH as `homeserver@…` (for `neo`) or `admin@…` with the key you put in settings. Both users share `core.hashedLinuxPassword` when you set one (console/sudo).
 
 **You do not need:** to learn Docker Compose, hand-write Nginx configs, or open lots of ports. Only web traffic (80/443) is required from the outside.
 
@@ -89,7 +92,10 @@ Use this when the target is **not** Neo yet, or you want a clean install from an
 **Your laptop:**
 
 - [Nix installed](https://nixos.org/download/) with [flakes enabled](https://wiki.nixos.org/wiki/Flakes)  
+- Must be able to **build `x86_64-linux`** (a typical x86_64 Linux machine). `nix run github:madebydamo/neo#neo` currently only provides that architecture.  
 - Network path to the target over SSH  
+
+If you are on a **Mac**, a live USB, or a machine that cannot build `x86_64-linux`, skip this path and use [when the laptop cannot build](#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture). Passing `--system x86_64-linux` on Darwin still needs a Linux builder; it will not magically cross-compile NixOS.
 
 **Target machine** ([nixos-anywhere requirements](https://nix-community.github.io/nixos-anywhere/)):
 
@@ -97,7 +103,7 @@ Use this when the target is **not** Neo yet, or you want a clean install from an
 - Either a **NixOS installer**, or **x86_64 / aarch64 Linux with [kexec](https://man7.org/linux/man-pages/man8/kexec.8.html)** support (common on VPS images), and roughly **≥ 1.5 GB RAM** free for the installer step  
 - You accept that Disko will **erase** the disks you configure  
 
-Official docs require **kexec** (or a NixOS installer)—not KVM—on the target for the remote install path.
+Official docs require **kexec** (or a NixOS installer)—not KVM—on the target for the remote install path. A live USB’s root is usually a **tmpfs**; there is often not enough space to build on the target unless you [mount extra disk](#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture).
 
 ### 1. Init Neo on the laptop
 
@@ -164,11 +170,58 @@ When it finishes, the target reboots into Neo/NixOS. SSH host keys change; clear
 ssh-keygen -R TARGET_IP
 ```
 
-### 5. First login
+Then [first login](#first-login) as `homeserver@TARGET_IP`. Root SSH is disabled (`PermitRootLogin = no`).
+
+---
+
+## When the laptop cannot build (Mac, live USB, or wrong architecture)
+
+Path B fails when:
+
+- The laptop is **not** `x86_64-linux` (typical error on an Apple Silicon Mac: flake does not provide `apps.aarch64-darwin.neo` / `packages.aarch64-darwin.neo`)
+- The laptop and target have **different architectures**, so nixos-anywhere cannot build the system locally
+- The target is a **NixOS live USB** (or similar): `/` and `/nix` sit on a tmpfs, so a local `neo` / NixOS build runs out of space
+
+**Workaround:** treat the target as Path A. Boot it (installer USB is fine), give Nix a real disk for the build, run `neo init` **on the machine**, then let Disko format the OS disk. The target still needs to be **x86_64-linux** for `github:madebydamo/neo#neo` (same CLI limitation as Path B).
+
+If the box has **two drives** (example: SSD for Neo, HDD for extra space):
+
+1. In Disko, set `mainDisk` to the **SSD** you are willing to wipe (the OS disk).
+2. On the live system, **mount the HDD** somewhere durable and point Nix scratch at it so the build is not stuck in RAM/tmpfs. Device names vary (`lsblk`); do **not** mount the disk Disko will erase.
 
 ```bash
-ssh root@TARGET_IP
+# Example only — use the extra disk, not mainDisk
+lsblk
+mkdir -p /mnt/scratch
+mount /dev/sdb1 /mnt/scratch          # extra HDD partition
+mkdir -p /mnt/scratch/tmp /mnt/scratch/nix
+export TMPDIR=/mnt/scratch/tmp
+# Optional: if /nix is still filling the USB tmpfs:
+#   mount --bind /mnt/scratch/nix /nix
 ```
+
+3. Install Nix if needed, then run the [Path A](#path-a--machine-already-runs-nixos) `nix run github:madebydamo/neo#neo -- init` commands **on the target** (not from the Mac).
+4. Put [minimal starter config](#minimal-starter-config) in place, including your SSH public key and Disko `mainDisk`.
+5. `neo activate` (or the equivalent first switch) on the target. Disko formats the SSD.
+6. After Neo is up, you can add the HDD under Disko `additionalDisks` in the web UI **if you accept that Disko will wipe that disk**. Unmount the scratch mount first. If you want to keep the HDD as-is, leave it out of Disko.
+
+`nixos-anywhere --build-on-remote` is the same idea (build on the target) and has the same space requirement: the live image still needs a disk for `/nix` / `TMPDIR`.
+
+---
+
+## First login
+
+After install, SSH as **`homeserver`** with the key in `core.ssh.authorizedKeys`:
+
+```bash
+ssh homeserver@TARGET_IP
+```
+
+- There is **no default password**.
+- Root login over SSH is off.
+- `homeserver` is the account `neo` and the web UI run as. SSH there and `neo edit` / `neo web` work without a sudo password.
+- `admin` is a separate wheel user (same SSH keys, same `hashedLinuxPassword`) for interactive sudo and remote Nix builds. `neo` as `admin` re-execs with `sudo -u homeserver`, which needs that password.
+- Optional: set `core.hashedLinuxPassword` (web UI helper or `mkpasswd -m sha-512`) if you want a console or sudo password. Leave it empty to keep password login locked.
 
 Open the **Neo web UI** in a browser (once DNS and SWAG are happy) and manage the homeserver from there.
 
@@ -189,6 +242,8 @@ docker run -i -t --rm ghcr.io/tinyauthapp/tinyauth:v5.1.3 user create --interact
 ```toml
 [core]
 hostname = "homeserver"
+# Optional. Empty = no Linux password (SSH keys only). There is no default.
+# hashedLinuxPassword = "$6$rounds=...hash-from-mkpasswd..."
 
 [core.ssh]
 authorizedKeys = [
@@ -209,8 +264,9 @@ email = "you@example.com"
 
 [services.tinyauth]
 enabled = true
+# Web UI login (not a Linux account). Linux SSH is homeserver@ + authorizedKeys.
 users = [
-  "admin:$2a$10$REPLACE_WITH_BCRYPT_HASH",
+  "you:$2a$10$REPLACE_WITH_BCRYPT_HASH",
 ]
 # Optional per-user app ACLs (neo service names). Empty = full access.
 # [services.tinyauth.access.guest]
@@ -246,9 +302,11 @@ For greenfield installs, Neo can partition with [Disko](https://github.com/nix-c
 | `poolName` | ZFS pool name (default `zroot`) |
 | `additionalDisks` | Extra disks → mount points (e.g. media) |
 
-Default: boot partition + ZFS for the system and Neo data (with snapshots on Neo’s data dataset).
+Default: boot partition + ZFS for the system and Neo data (with snapshots on Neo’s data dataset). One disk today: `mainDisk` becomes the OS pool (`zroot`). Extra disks in `additionalDisks` each get their own pool.
 
 **Only enable when you intend to erase those disks.**
+
+Live USB with too little space: [mount a second disk for the build](#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture), keep `mainDisk` on the drive you want Disko to format.
 
 ---
 
@@ -314,10 +372,11 @@ ingress = ["local"]
 
 ## After install
 
-1. Open **Neo web**  
-2. Enable services, set users, add [plugins](PLUGINS.md) under **Settings → core → plugins**  
-3. **Activate** from the UI  
-4. Leave **system-updater** (and **docker-updater**) on if you want hands-off upgrades  
+1. SSH as `homeserver@…` if you need a shell ([first login](#first-login))  
+2. Open **Neo web**  
+3. Enable services, set users, add [plugins](PLUGINS.md) under **Settings → core → plugins**  
+4. **Activate** from the UI  
+5. Leave **system-updater** (and **docker-updater**) on if you want hands-off upgrades  
 
 Optional terminal tools: [CLI.md](CLI.md).
 

@@ -105,7 +105,11 @@
         "docker"
       ];
       openssh.authorizedKeys.keys = config.neo.core.ssh.authorizedKeys;
-      hashedPassword = config.neo.core.hashedLinuxPassword;
+      # Same hash as homeserver. Empty hashedLinuxPassword locks password login (`!`).
+      hashedPassword =
+        if cfg.hashedLinuxPassword == ""
+        then "!"
+        else cfg.hashedLinuxPassword;
     };
 
     time.timeZone = config.neo.core.timeZone;
