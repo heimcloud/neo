@@ -148,8 +148,10 @@ pub struct OptionType {
     pub min: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<i64>,
+    /// Enum members or resolved `ui.choices`. Nix enums are not always strings
+    /// (`types.enum [0 1 2]` on disko `folders.<name>.survive`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub values: Option<Vec<String>>,
+    pub values: Option<Vec<serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
 }
@@ -183,4 +185,90 @@ pub struct OptionSchema {
     /// Declarative presentation metadata from option.ui (widgets, keysFrom, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<OptionUi>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enum_values_keep_integer_members() {
+        let t: OptionType = serde_json::from_value(serde_json::json!({
+            "kind": "enum",
+            "values": [0, 1, 2]
+        }))
+        .expect("integer enum members");
+        assert_eq!(
+            t.values,
+            Some(vec![
+                serde_json::json!(0),
+                serde_json::json!(1),
+                serde_json::json!(2)
+            ])
+        );
+    }
+
+    #[test]
+    fn enum_values_keep_string_members() {
+        let t: OptionType = serde_json::from_value(serde_json::json!({
+            "kind": "enum",
+            "values": ["auto", "bulk"]
+        }))
+        .expect("string enum members");
+        assert_eq!(
+            t.values,
+            Some(vec![serde_json::json!("auto"), serde_json::json!("bulk")])
+        );
+    }
+
+    /// The disko pane is one widget-on-parent submodule. Nested
+    /// `folders.*.survive` is `types.enum [0 1 2]`; rejecting that integer
+    /// used to fail the whole section with "invalid type: integer `0`".
+    #[test]
+    fn disko_schema_deserializes_survive_int_enum() {
+        let schema: OptionSchema = serde_json::from_value(serde_json::json!({
+            "name": "",
+            "type": {
+                "kind": "submodule",
+                "fields": [{
+                    "name": "folders",
+                    "type": {
+                        "kind": "attrsOf",
+                        "elem": {
+                            "kind": "submodule",
+                            "fields": [{
+                                "name": "survive",
+                                "type": { "kind": "enum", "values": [0, 1, 2] },
+                                "typeLabel": "enum",
+                                "default": 0,
+                                "description": "How many disks may die before this folder is lost."
+                            }]
+                        }
+                    },
+                    "typeLabel": "attrs of submodule",
+                    "default": {},
+                    "description": ""
+                }]
+            },
+            "typeLabel": "submodule",
+            "default": {},
+            "description": "Disko configuration",
+            "ui": { "widget": "storageLayout" }
+        }))
+        .expect("disko schema");
+
+        let survive = &schema.r#type.fields.as_ref().unwrap()[0]
+            .r#type
+            .elem
+            .as_ref()
+            .unwrap()
+            .fields
+            .as_ref()
+            .unwrap()[0];
+        assert_eq!(survive.name, "survive");
+        assert_eq!(
+            survive.r#type.values.as_ref().unwrap()[0],
+            serde_json::json!(0)
+        );
+    }
 }
