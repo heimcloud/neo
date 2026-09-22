@@ -13,7 +13,7 @@ build:
     PWD=$(pwd)
     CONFIG_PATH="${PWD}/build"
     NEO_INPUT="git+file:${PWD}"
-    printf '[neo-service]\nenabled = true\nbootstrapEnabled = true\nautoUpdateEnabled = false\n[neo-cli]\nconfigPath = "%s"\nneoInput = "%s"\ntemplate = "%s#homeserver"\n' \
+    printf '[neo-cli]\nconfigPath = "%s"\nneoInput = "%s"\ntemplate = "%s#homeserver"\n\n[services.system-updater]\nenabled = false\n' \
       "$CONFIG_PATH" "$NEO_INPUT" "$NEO_INPUT" > settings.toml
     git add settings.toml
   fi

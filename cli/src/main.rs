@@ -57,8 +57,7 @@ struct Cli {
     #[arg(long, env = "NEO_PROFILE", default_value = "", global = true)]
     profile: String,
 
-    /// Alias for --profile. Also accepts legacy names neo-cli (→ local) and neo-service (→ server).
-    /// Env: NEO_SECTION.
+    /// Alias for --profile (`local` or `server`). Env: NEO_SECTION.
     #[arg(long, env = "NEO_SECTION", default_value = "", global = true)]
     section: String,
 

@@ -16,7 +16,7 @@ neo --help
 |------------|---------|
 | `--settings FILE` | Path to settings. Default: `/etc/neo/settings.toml` if present, else `./settings.toml`. |
 | `--profile local \| server` | Which path profile to use. Default: `server` if `/etc/neo/settings.toml` exists, else `local`. Env: `NEO_PROFILE`. |
-| `--section …` | Alias for `--profile`. Legacy: `neo-cli` → local, `neo-service` → server. Env: `NEO_SECTION`. |
+| `--section …` | Alias for `--profile` (`local` or `server`). Env: `NEO_SECTION`. |
 | `--dry-run` | Print actions without applying. |
 | `--neo-input` / `NEO_NEO_INPUT` | Override Neo input URL. |
 | `--template` / `NEO_TEMPLATE` | Override template. |

@@ -83,11 +83,19 @@ fn apply_migrations(doc: &mut DocumentMut) -> bool {
     did_new
 }
 
-/// Split legacy [neo-service] into core.plugins, services.system-updater, and neo-cli.
+/// Delete retired [neo-service] and [nixos] tables.
+///
+/// Keys that still exist are moved to core.plugins, services.system-updater, and neo-cli.
+/// Anything else in those tables (enabled, bootstrapEnabled, …) is dropped.
 fn migrate_003_split_neo_service(doc: &mut DocumentMut) {
-    let Some(svc_item) = remove_dotted(doc, "neo-service") else {
-        return;
-    };
+    for key in ["neo-service", "nixos"] {
+        if let Some(item) = remove_dotted(doc, key) {
+            absorb_retired_service_table(doc, &item);
+        }
+    }
+}
+
+fn absorb_retired_service_table(doc: &mut DocumentMut, svc_item: &Item) {
     let Some(svc) = svc_item.as_table() else {
         return;
     };
@@ -377,10 +385,6 @@ const MIGRATIONS: &[Migration] = &[
         id: "001-rename-legacy-neo-nixos-cli-and-core-keys",
         renames: &[
             KeyRename {
-                from: "nixos",
-                to: "neo-service",
-            },
-            KeyRename {
                 from: "cli",
                 to: "neo-cli",
             },
@@ -536,6 +540,87 @@ fn move_dotted(doc: &mut DocumentMut, from: &str, to: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_003_drops_retired_service_sections() {
+        let raw = r#"
+[neo-service]
+enabled = true
+bootstrapEnabled = true
+autoUpdateEnabled = false
+autoUpdateTimer = "daily"
+garbageCollectOlderThen = "7d"
+plugins = ["github:example/plugin"]
+neoInput = "github:example/neo"
+configPath = "/var/neo/DATA/AppData/configuration"
+
+[nixos]
+enabled = true
+repoUrl = "https://example.test/cfg.git"
+"#;
+        let mut doc: DocumentMut = raw.parse().unwrap();
+        assert!(apply_migrations(&mut doc));
+
+        assert!(doc.get("neo-service").is_none());
+        assert!(doc.get("nixos").is_none());
+
+        let updater = doc
+            .get("services")
+            .and_then(|s| s.get("system-updater"))
+            .and_then(|t| t.as_table())
+            .expect("services.system-updater");
+        assert_eq!(
+            updater.get("enabled").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert_eq!(
+            updater.get("schedule").and_then(|v| v.as_str()),
+            Some("daily")
+        );
+        assert_eq!(
+            updater
+                .get("garbageCollectOlderThen")
+                .and_then(|v| v.as_str()),
+            Some("7d")
+        );
+
+        let plugins = doc
+            .get("core")
+            .and_then(|c| c.get("plugins"))
+            .and_then(|p| p.as_array())
+            .expect("core.plugins");
+        assert_eq!(
+            plugins
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>(),
+            vec!["github:example/plugin"]
+        );
+
+        let cli = doc.get("neo-cli").and_then(|t| t.as_table()).unwrap();
+        assert_eq!(
+            cli.get("neoInput").and_then(|v| v.as_str()),
+            Some("github:example/neo")
+        );
+        assert_eq!(
+            cli.get("repoUrl").and_then(|v| v.as_str()),
+            Some("https://example.test/cfg.git")
+        );
+        assert_eq!(
+            cli.get("server")
+                .and_then(|t| t.get("configPath"))
+                .and_then(|v| v.as_str()),
+            Some("/var/neo/DATA/AppData/configuration")
+        );
+
+        let out = doc.to_string();
+        assert!(!out.contains("bootstrapEnabled"));
+        assert!(!out.contains("autoUpdateEnabled"));
+        assert!(
+            !apply_migrations(&mut doc),
+            "second run must report no further migrations"
+        );
+    }
 
     #[test]
     fn migration_005_removes_openclaw_secrets() {

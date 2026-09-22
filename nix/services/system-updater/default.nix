@@ -1,4 +1,4 @@
-# System auto-updater: bootstrap + scheduled neo update/activate (replaces neo-service auto-update).
+# System auto-updater: bootstrap + scheduled neo update/activate.
 {self, ...}: {
   flake.modules.nixos.system-updater = {
     config,
