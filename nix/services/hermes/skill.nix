@@ -23,7 +23,7 @@
         - HERMES_HOME: `<stateDir>/.hermes` (default under appdata/hermes)
         - Workspace (terminal cwd): `<stateDir>/workspace` — generated **AGENTS.md**
         - SOUL.md identity: `HERMES_HOME/SOUL.md` (seeded once by Neo unless forceSoul)
-        - Managed skills: `skills.external_dirs` store tree of `/neo-*` skills (rebuild-stable)
+        - Managed skills: `skills.external_dirs` store tree **and** `HERMES_HOME/skills/<name>` symlinks (rebuild-stable)
         - Gateway is local API; dashboard is SWAG + tinyauth + internal basic-auth auto-login
 
         ## CLI & tooling
@@ -62,7 +62,7 @@
         ## Pitfalls
         - Clearing hermes appdata wipes memory, sessions, local skills, and custom SOUL
         - Agent-created skills under HERMES_HOME/skills override external Neo skills with the same name
-        - Managed Neo skills are replaced on rebuild — do not edit the store path
+        - Managed Neo skills are replaced on rebuild — do not edit the store path or Neo-managed symlinks under HERMES_HOME/skills
         - `llm.provider = "xai"` is the API-key path; SuperGrok OAuth is `xai-oauth` with empty `apiKey`
         - Dashboard cannot switch models under Nix managed mode — use Neo `llm.*` options or OAuth CLI
 
