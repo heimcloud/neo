@@ -33,8 +33,8 @@
             types {
                 text/html html;
                 text/css css;
+                # One type per extension. A second js line warns once per vhost.
                 application/javascript js;
-                text/javascript js;
             }
             add_header X-Robots-Tag "noindex, nofollow, nosnippet, noarchive" always;
             add_header Cache-Control "no-store" always;

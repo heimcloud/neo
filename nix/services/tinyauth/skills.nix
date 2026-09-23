@@ -19,7 +19,7 @@
         Login gate, add users, per-user app ACLs, session issues, publicPaths bypasses.
 
         ## Architecture notes
-        - Used by SWAG via `include /config/nginx/tinyauth-location.conf` (location) + `tinyauth-server.conf` (server)
+        - Used by SWAG via `include /config/nginx/tinyauth-location.conf` (location) + `tinyauth-server.conf` (server). 401 and 403 follow Tinyauth's `X-Tinyauth-Location` header.
         - Users option: list of `username:bcrypt_hash`
         - Per-service `auth.enabled` / `auth.publicPaths` control protection
         - `backgroundImage` (default true): random lipsum.app login wallpaper; off = Tinyauth default

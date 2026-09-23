@@ -14,65 +14,58 @@
       in
         lib.optionalString authEnabled "\n    include /config/nginx/tinyauth-location.conf;";
 
-      # Server-block snippet: /tinyauth auth handler + @tinyauth_login redirect.
+      # Server-block snippet: internal /tinyauth auth subrequest.
       authLocations = config: cfg: let
         tinyauthCfg = config.neo.services.tinyauth;
         authEnabled = cfg.auth.enabled && tinyauthCfg.enabled;
       in
         lib.optionalString authEnabled "\n  include /config/nginx/tinyauth-server.conf;";
 
-      # Materialized as /config/nginx/tinyauth-location.conf (SWAG-compatible).
+      # Materialized as /config/nginx/tinyauth-location.conf.
+      # Redirect target comes from Tinyauth (X-Tinyauth-Location), including 403.
       tinyauthLocationConf = ''
-        ## Neo-managed — SWAG tinyauth location snippet
-        ## Include inside location / { ... } when edge auth is enabled.
-
-        ## Send a subrequest to tinyauth to verify if the user is authenticated
+        ## Send a subrequest to tinyauth to verify if the user is authenticated and has permission to access the resource
         auth_request /tinyauth;
+        auth_request_set $redirection_url $upstream_http_x_tinyauth_location;
+        error_page 401 403 =302 $redirection_url;
 
-        ## If the subrequest returns 200 pass to the backend; 401 → login portal
-        error_page 401 = @tinyauth_login;
-
-        ## Translate user info response headers from the auth subrequest
+        ## Translate the user information response headers from the auth subrequest into variables
         auth_request_set $email $upstream_http_remote_email;
         auth_request_set $groups $upstream_http_remote_groups;
         auth_request_set $name $upstream_http_remote_name;
         auth_request_set $user $upstream_http_remote_user;
 
-        ## Inject user information into the upstream request
+        ## Inject the user information into the request made to the actual upstream
         proxy_set_header Remote-Email $email;
         proxy_set_header Remote-Groups $groups;
         proxy_set_header Remote-Name $name;
         proxy_set_header Remote-User $user;
       '';
 
-      # Materialized as /config/nginx/tinyauth-server.conf (port/subdomain from neo).
+      # Materialized as /config/nginx/tinyauth-server.conf.
+      # Port stays neo's; the sample hardcodes 3000. No proxy.conf here:
+      # that file's Host/Upgrade headers do not belong on the auth subrequest.
       mkTinyauthServerConf = config: let
         tinyauthCfg = config.neo.services.tinyauth;
-        domain = config.neo.services.swag.domain;
         port = toString tinyauthCfg.port;
-        subdomain = tinyauthCfg.subdomain;
       in ''
-        ## Neo-managed — SWAG tinyauth server snippet
-        ## Include in the server { ... } block when edge auth is enabled.
-
         # location for tinyauth auth requests
         location /tinyauth {
             internal;
 
-            include /config/nginx/proxy.conf;
             include /config/nginx/resolver.conf;
             set $upstream_tinyauth tinyauth;
             proxy_pass http://$upstream_tinyauth:${port}/api/auth/nginx;
 
-            proxy_set_header x-forwarded-proto $scheme;
-            proxy_set_header x-forwarded-host $http_host;
-            proxy_set_header x-forwarded-uri $request_uri;
-        }
+            # Don't send the body to the auth server
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
 
-        # virtual location for tinyauth 401 redirects
-        location @tinyauth_login {
-            internal;
-            return 302 https://${subdomain}.${domain}/login?redirect_uri=$scheme://$http_host$request_uri;
+            # Headers needed for authentication
+            proxy_set_header X-Original-URL $scheme://$http_host$request_uri;
+            proxy_set_header X-Original-Method $request_method;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Real-IP $remote_addr;
         }
       '';
 
