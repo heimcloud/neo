@@ -1,6 +1,9 @@
 # Hermes skills collector + always-on Neo curriculum (AGENTS.md, SOUL.md).
 # Materializes enabled services' skill.conf into a store tree pointed at by
-# skills.external_dirs. Parallel to how SWAG collects proxyConf.
+# skills.external_dirs AND symlinks each skill into HERMES_HOME/skills so
+# `hermes -s NAME` / operator listing resolve without hand-copy (external_dirs
+# alone left plugin skills invisible under ~/.hermes/skills on labs).
+# Parallel to how SWAG collects proxyConf.
 {...}: {
   flake.modules.nixos.hermes-skills = {
     config,
@@ -245,7 +248,7 @@
       | documents | `${volumes.documents}` |
 
       Hermes state: `${cfg.stateDir}` (HERMES_HOME = `${cfg.stateDir}/.hermes`).
-      Managed Neo skills are published via Hermes `skills.external_dirs` (store path; rebuild-stable).
+      Managed Neo skills: `skills.external_dirs` store tree **and** symlinks under `HERMES_HOME/skills/<name>` (rebuild-stable).
 
       ## Domain & edge
       - Domain: ${
@@ -316,10 +319,72 @@
     '';
 
     soulFile = pkgs.writeText "neo-hermes-SOUL.md" soulMd;
+
+    # Skill names published this generation (for pruning stale Neo-managed symlinks).
+    managedSkillNames = lib.sort (a: b: a < b) (map (c: c.name) allSkillConfs);
+    managedNamesFile = pkgs.writeText "neo-hermes-managed-skill-names" (
+      lib.concatMapStrings (n: n + "\n") managedSkillNames
+    );
   in {
     config = lib.mkIf cfg.enabled {
+
       services.hermes-agent.settings.skills.external_dirs = [skillsTree];
       services.hermes-agent.documents."AGENTS.md" = lib.mkForce agentsMd;
+
+      # Wire external_dirs skills into the path `hermes -s` / skills list reliably use.
+      # Hermes skill_view *can* scan external_dirs, but Fleet saw store-tree skills missing
+      # under ~/.hermes/skills and -s failing closed until hand-copied. Symlink each
+      # skillsTree entry into HERMES_HOME/skills (store target, hermes-owned).
+      system.activationScripts.hermes-neo-skills = lib.stringAfter ["users" "hermes-agent-setup"] ''
+        set -euo pipefail
+        hermes_home="${cfg.stateDir}/.hermes"
+        skills_dir="$hermes_home/skills"
+        tree="${skillsTree}"
+        names_file="${managedNamesFile}"
+        mkdir -p "$skills_dir"
+
+        # Symlink every skill dir from this generation's store tree.
+        if [ -d "$tree" ]; then
+          for src in "$tree"/*; do
+            [ -d "$src" ] || continue
+            name=$(basename "$src")
+            dest="$skills_dir/$name"
+            if [ -L "$dest" ]; then
+              rm -f "$dest"
+            elif [ -e "$dest" ]; then
+              # Leave real (agent/user) dirs alone — local precedence.
+              # Only replace if it is already a Neo-managed symlink (handled above)
+              # or missing. Hand-copies that are real dirs keep local precedence.
+              continue
+            fi
+            ln -sfn "$src" "$dest"
+            chown -h hermes:hermes "$dest" 2>/dev/null || true
+          done
+        fi
+
+        # Drop Neo-managed symlinks whose names are no longer in this generation.
+        # Only remove symlinks pointing into /nix/store (never real local skills).
+        if [ -f "$names_file" ]; then
+          for dest in "$skills_dir"/*; do
+            [ -e "$dest" ] || [ -L "$dest" ] || continue
+            name=$(basename "$dest")
+            if ! grep -Fxq "$name" "$names_file"; then
+              if [ -L "$dest" ]; then
+                target=$(readlink "$dest" || true)
+                case "$target" in
+                  /nix/store/*)
+                    rm -f "$dest"
+                    ;;
+                esac
+              fi
+            fi
+          done
+        fi
+
+        chown hermes:hermes "$skills_dir" 2>/dev/null || true
+        touch "$skills_dir/.neo-skills-managed"
+        chown hermes:hermes "$skills_dir/.neo-skills-managed" 2>/dev/null || true
+      '';
 
       system.activationScripts.hermes-neo-soul = lib.stringAfter ["users" "hermes-agent-setup"] (
         if cfg.forceSoul
