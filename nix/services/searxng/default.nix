@@ -3,7 +3,7 @@
 # After searxng image bumps, settings.yml in appdata can still list engine modules the
 # image removed (FileNotFoundError on register). preStart prunes a known-removed set,
 # seeds limiter.toml (botdetection / trusted docker proxies), and relies on SWAG to
-# forward X-Real-IP / X-Forwarded-For.
+# forward X-Real-IP / X-Forwarded-For via its shared proxy.conf.
 {...}: {
   flake.modules.nixos.searxng = {
     config,
@@ -24,6 +24,7 @@
         "adobe stock"
         "adobe stock video"
         "adobe stock audio"
+        "ahmia"
         "aol"
         "aol images"
         "aol videos"
