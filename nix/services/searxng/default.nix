@@ -16,17 +16,27 @@
       appdata = "${config.neo.core.volumes.appdata}/searxng";
       domain = config.neo.services.swag.domain;
 
-      # Engines whose modules were dropped from docker.io/searxng/searxng (verified
-      # absent on upstream master searx/engines/*.py). Extend as future bumps remove more.
-      removedEngines = [
-        "adobe_stock"
+      # Display `name:` values (case-insensitive exact) for engines whose modules were
+      # dropped from docker.io/searxng/searxng. Include every settings.yml name that
+      # shared a removed module (e.g. adobe stock video). torch uses engine: xpath —
+      # match on name only. Extend as future bumps remove more.
+      removedEngineNames = [
+        "adobe stock"
+        "adobe stock video"
+        "adobe stock audio"
         "aol"
+        "aol images"
+        "aol videos"
         "cara"
-        "loc"
+        "library of congress"
         "podcastindex"
         "presearch"
+        "presearch images"
+        "presearch videos"
+        "presearch news"
         "reddit"
         "svgrepo"
+        "torch"
       ];
 
       # Docker / private ranges so botdetection accepts X-Forwarded-* from SWAG.
@@ -51,41 +61,58 @@
         pass_searxng_org = true
       '';
 
+      prunePython = pkgs.python3.withPackages (p: [p.pyyaml]);
+
       prunePy = pkgs.writeText "neo-searxng-prune-engines.py" ''
-        import re, sys
+        import sys
+        import yaml
+
         path = sys.argv[1]
-        removed = {${lib.concatMapStringsSep ", " (e: ''"${e}"'') removedEngines}}
+        removed = {${lib.concatMapStringsSep ", " (e: ''"${e}"'') removedEngineNames}}
+        removed_cf = {n.casefold() for n in removed}
+
         try:
-            text = open(path, encoding="utf-8").read()
+            with open(path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
         except FileNotFoundError:
+            print("neo-searxng: removed 0 engine(s) from", path, "(missing)")
             sys.exit(0)
-        engines_m = re.search(r"(?m)^(engines:\s*\n)", text)
-        if not engines_m:
+        except Exception as exc:
+            print("neo-searxng: removed 0 engine(s) from", path, "(parse error:", exc, ")")
             sys.exit(0)
-        start = engines_m.end()
-        next_m = re.search(r"(?m)^[a-zA-Z0-9_]+:\s*", text[start:])
-        end = start + next_m.start() if next_m else len(text)
-        head, body, tail = text[:start], text[start:end], text[end:]
-        items = re.split(r"(?m)^(?=- name:\s)", body)
+
+        if not isinstance(data, dict):
+            print("neo-searxng: removed 0 engine(s) from", path, "(not a mapping)")
+            sys.exit(0)
+
+        engines = data.get("engines")
+        if not isinstance(engines, list):
+            print("neo-searxng: removed 0 engine(s) from", path, "(no engines list)")
+            sys.exit(0)
+
         kept = []
-        for item in items:
-            if not item.strip():
-                continue
-            eng = re.search(r"(?m)^\s+engine:\s*([^\s#]+)", item)
-            nam = re.search(r"(?m)^- name:\s*[\"']?([^\"'\n#]+)", item)
-            tokens = set()
-            if eng:
-                tokens.add(eng.group(1).strip().strip("\"'"))
-            if nam:
-                tokens.add(nam.group(1).strip().lower().replace(" ", "_"))
-                tokens.add(nam.group(1).strip())
-            if tokens & removed:
-                continue
-            kept.append(item)
-        new_body = "".join(kept)
-        if new_body != body:
-            open(path, "w", encoding="utf-8").write(head + new_body + tail)
-            print("neo-searxng: pruned removed engines from", path)
+        removed_count = 0
+        for entry in engines:
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                if isinstance(name, str) and name.casefold() in removed_cf:
+                    removed_count += 1
+                    continue
+            kept.append(entry)
+
+        if removed_count:
+            data["engines"] = kept
+            with open(path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    data,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
+
+        print("neo-searxng: removed", removed_count, "engine(s) from", path)
+        sys.exit(0)
       '';
     in {
       config = mkIf cfg.enabled {
@@ -103,7 +130,7 @@
             # Seed limiter.toml (botdetection trusted_proxies for SWAG → searxng).
             install -m 0644 ${limiterToml} ${appdata}/searxng/limiter.toml
             # Drop engine entries whose modules the current image no longer ships.
-            ${pkgs.python3}/bin/python3 ${prunePy} ${appdata}/searxng/settings.yml || true
+            ${prunePython}/bin/python3 ${prunePy} ${appdata}/searxng/settings.yml
           '';
 
         virtualisation.oci-containers.containers = {
