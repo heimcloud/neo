@@ -35,6 +35,34 @@
                 rank = 20;
                 description = "Disable open registration (invite/admin-created users only)";
               };
+              ssh = mkOption {
+                type = types.submodule {
+                  options = {
+                    enable = mkEnableOption "Gitea built-in SSH server (deploy-key clones)" {rank = 0;};
+                    port = mkOption {
+                      type = types.port;
+                      default = 2222;
+                      rank = 10;
+                      description = "SSH_PORT advertised in clone URLs / UI (not the host sshd)";
+                    };
+                    listenPort = mkOption {
+                      type = types.port;
+                      default = 2222;
+                      rank = 20;
+                      description = "Host loopback publish port: 127.0.0.1:listenPort → container :22";
+                    };
+                    domain = mkOption {
+                      type = types.nullOr types.str;
+                      default = null;
+                      rank = 30;
+                      description = "SSH_DOMAIN; null = hostname derived from rootUrl / customDomains";
+                    };
+                  };
+                };
+                default = {};
+                rank = 30;
+                description = "Built-in Gitea SSH (deploy keys). Keep disabled until edge TCP forward exists.";
+              };
             }
             // lib.neo.mkReverseProxyOptions {
               subdomain = "gitea";
