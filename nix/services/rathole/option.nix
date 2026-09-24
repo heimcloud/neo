@@ -43,6 +43,19 @@
                 '';
                 rank = 50;
               };
+              extraServices = mkOption {
+                type = types.attrsOf (types.submodule {
+                  options = {
+                    localAddr = mkOption {
+                      type = types.str;
+                      description = "Client-side local_addr (e.g. 127.0.0.1:2222 for Gitea SSH)";
+                    };
+                  };
+                });
+                default = {};
+                rank = 60;
+                description = "Additional rathole client TCP services beyond _http/_https (name → localAddr)";
+              };
             }
             // lib.neo.mkSystemdUnits [
               "rathole"

@@ -100,6 +100,19 @@
       );
 
       nonSwagEntries = filterAttrs (n: _: n != "swag-local") cfg.entries;
+      tcpForwardList = attrValues cfg.tcpForwards;
+      tcpForwardPorts = map (f: f.listenPort) tcpForwardList;
+      tcpForwardRatholeStanzas = flatten (mapAttrsToList (
+          _fwdName: fwd: let
+            entry = cfg.entries.${fwd.entry};
+          in [
+            "[server.services.${fwd.entry}_${fwd.serviceSuffix}]"
+            "token = \"${entry.token}\""
+            "bind_addr = \"0.0.0.0:${toString fwd.listenPort}\""
+            ""
+          ]
+        )
+        cfg.tcpForwards);
       configFile = pkgs.writeText "rathole-server.toml" ''
         [server]
         bind_addr = "0.0.0.0:2223"
@@ -117,8 +130,10 @@
             ])
             nonSwagEntries
           )
+          ++ tcpForwardRatholeStanzas
         )}
       '';
+
       streamproxyForwarding = port: {
         description = "Forward localhost:${toString port} to streamproxy container";
         after = ["container@streamproxy.service"];
@@ -135,6 +150,12 @@
       };
     in
       mkIf cfg.enabled {
+        assertions =
+          mapAttrsToList (_n: fwd: {
+            assertion = builtins.hasAttr fwd.entry cfg.entries;
+            message = "neo.services.streamproxy.tcpForwards entry '${fwd.entry}' is not in services.streamproxy.entries";
+          })
+          cfg.tcpForwards;
         boot.enableContainers = true;
         virtualisation.containers.enable = true;
 
@@ -142,7 +163,7 @@
           80
           443
           2223
-        ];
+        ] ++ tcpForwardPorts;
         systemd.services = {
           streamproxy-local80 = streamproxyForwarding 80;
           streamproxy-local443 = streamproxyForwarding 443;
@@ -151,23 +172,30 @@
         containers.streamproxy = {
           autoStart = true;
           privateNetwork = true;
-          forwardPorts = [
-            {
-              containerPort = 80;
-              hostPort = 80;
-              protocol = "tcp";
-            }
-            {
-              containerPort = 443;
-              hostPort = 443;
-              protocol = "tcp";
-            }
-            {
-              containerPort = 2223;
-              hostPort = 2223;
-              protocol = "tcp";
-            }
-          ];
+          forwardPorts =
+            [
+              {
+                containerPort = 80;
+                hostPort = 80;
+                protocol = "tcp";
+              }
+              {
+                containerPort = 443;
+                hostPort = 443;
+                protocol = "tcp";
+              }
+              {
+                containerPort = 2223;
+                hostPort = 2223;
+                protocol = "tcp";
+              }
+            ]
+            ++ (map (port: {
+                containerPort = port;
+                hostPort = port;
+                protocol = "tcp";
+              })
+              tcpForwardPorts);
           hostAddress = localIp;
           localAddress = streamproxyIp;
 
@@ -176,7 +204,7 @@
               80
               443
               2223
-            ];
+            ] ++ tcpForwardPorts;
 
             services.nginx = {
               enable = true;
