@@ -65,6 +65,37 @@
                   rank = 10;
                   description = "Streamproxy entries mapping names to URLs, tokens, and routing rules";
                 };
+                tcpForwards = mkOption {
+                  type = types.attrsOf (
+                    types.submodule {
+                      options = {
+                        entry = mkOption {
+                          type = types.str;
+                          description = "Name of services.streamproxy.entries.<entry> to attach this TCP tunnel to";
+                          rank = 0;
+                        };
+                        serviceSuffix = mkOption {
+                          type = types.str;
+                          description = "Rathole service suffix (client must use the same: <entryName>_<suffix>)";
+                          example = "gitea_ssh";
+                          rank = 10;
+                        };
+                        listenPort = mkOption {
+                          type = types.port;
+                          description = "Public TCP port on the edge (e.g. 2222 for Gitea SSH)";
+                          rank = 20;
+                        };
+                      };
+                    }
+                  );
+                  default = {};
+                  rank = 20;
+                  description = ''
+                    Extra public TCP forwards via rathole (not SNI/HTTPS). Used for Gitea
+                    built-in SSH on a dedicated port. Each forward adds a rathole server
+                    service bound on listenPort and opens the firewall.
+                  '';
+                };
                 ports = mkOption {
                   type = types.attrsOf (types.attrsOf types.int);
                   internal = true;
