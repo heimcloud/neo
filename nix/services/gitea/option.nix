@@ -38,18 +38,18 @@
               ssh = mkOption {
                 type = types.submodule {
                   options = {
-                    enable = mkEnableOption "Gitea built-in SSH server (deploy-key clones)" {rank = 0;};
+                    enable = mkEnableOption "Gitea SSH via the image's bundled OpenSSH (deploy-key clones)" {rank = 0;};
                     port = mkOption {
                       type = types.port;
                       default = 2222;
                       rank = 10;
-                      description = "SSH_PORT advertised in clone URLs / UI (not the host sshd)";
+                      description = "Public SSH_PORT advertised in clone URLs / UI (edge port; not the host sshd)";
                     };
                     listenPort = mkOption {
                       type = types.port;
                       default = 2222;
                       rank = 20;
-                      description = "Host loopback publish port: 127.0.0.1:listenPort → container :22";
+                      description = "Host loopback publish port: 127.0.0.1:listenPort → container OpenSSH :22";
                     };
                     domain = mkOption {
                       type = types.nullOr types.str;
@@ -61,7 +61,11 @@
                 };
                 default = {};
                 rank = 30;
-                description = "Built-in Gitea SSH (deploy keys). Keep disabled until edge TCP forward exists.";
+                description = ''
+                  Gitea SSH for deploy-key clones, served by the image's bundled OpenSSH on container :22
+                  (built-in Go SSH server stays off; host keys persist in appdata/data/ssh).
+                  Keep disabled until the edge TCP forward exists.
+                '';
               };
             }
             // lib.neo.mkReverseProxyOptions {

@@ -92,7 +92,7 @@
                   rank = 20;
                   description = ''
                     Extra public TCP forwards via rathole (not SNI/HTTPS). Used for Gitea
-                    built-in SSH on a dedicated port. Each forward adds a rathole server
+                    SSH (deploy keys) on a dedicated port. Each forward adds a rathole server
                     service bound on listenPort and opens the firewall.
                   '';
                 };

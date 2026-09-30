@@ -25,14 +25,21 @@
         if cfg.ssh.domain != null && cfg.ssh.domain != ""
         then cfg.ssh.domain
         else rootHost;
+      # The rootful gitea/gitea image always runs its bundled OpenSSH (s6) on
+      # container :22 with host keys in /data/ssh. Gitea's built-in Go SSH server
+      # would also bind :22 and crash ("address already in use"), so keep it off
+      # and let OpenSSH serve git over the gitea-managed authorized_keys file.
+      # Only GITEA__server__* vars are set: plain SSH_PORT/SSH_LISTEN_PORT would
+      # move the bundled sshd off :22 (see /etc/s6/openssh/setup).
       sshEnv =
         if cfg.ssh.enable
         then {
-          GITEA__server__START_SSH_SERVER = "true";
+          GITEA__server__START_SSH_SERVER = "false";
           GITEA__server__DISABLE_SSH = "false";
           GITEA__server__SSH_DOMAIN = sshDomain;
           GITEA__server__SSH_PORT = toString cfg.ssh.port;
           GITEA__server__SSH_LISTEN_PORT = "22";
+          GITEA__server__SSH_CREATE_AUTHORIZED_KEYS_FILE = "true";
         }
         else {
           GITEA__server__DISABLE_SSH = "true";
