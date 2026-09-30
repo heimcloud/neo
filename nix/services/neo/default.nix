@@ -38,6 +38,13 @@
         # Blocking setup (lib.neo.mkSetupService): neo-web requires it and
         # starts only after init finished. One attempt, no restart: a failed
         # init fails neo-web's dependency instead of looping.
+        #
+        # stopIfChanged/restartIfChanged = false: neo activate holds the system
+        # lock for the whole nixos-rebuild switch. A unit-file change would
+        # otherwise restart this oneshot mid-switch; neo init then fails with
+        # "Blocked: Activation in progress", neo-web (Requires=) stays down, and
+        # the leftover failed state survives after the lock is released. Same
+        # pattern as neo-auto-update. Re-run on boot or systemctl start.
         systemd.services.neo-bootstrap = lib.neo.mkSetupService {
           inherit pkgs;
           name = "neo-bootstrap";
@@ -76,6 +83,9 @@
           script = ''
             ${neoPkg}/bin/neo --profile server init
           '';
+        } // {
+          stopIfChanged = false;
+          restartIfChanged = false;
         };
 
         systemd.services.neo-web = {

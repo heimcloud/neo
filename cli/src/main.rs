@@ -23,7 +23,7 @@ use crate::commands::{
     update_inputs::update_inputs,
     web::web,
 };
-use crate::utils::locks::{LockGuard, LockManager, LockSpec, OpInfo};
+use crate::utils::locks::{LockError, LockGuard, LockManager, LockSpec, OpInfo};
 use crate::utils::{
     execute_command, load_or_default_settings, resolve_config_path, resolve_profile,
     set_profile_str, OperationKind, OperationLog,
@@ -197,10 +197,22 @@ fn run(cli: Cli) -> Result<()> {
     }
 
     // Held until the command returns; nested `neo` calls inherit it.
+    // neo-bootstrap may start mid-`nixos-rebuild switch` while activate still
+    // holds the system lock. Re-init is unnecessary when the repo is already
+    // there — skip instead of failing the oneshot (and neo-web Requires=).
     let _lock = if dry_run {
         None
     } else {
-        acquire_command_lock(&command, cli.lock_wait)?
+        match try_acquire_command_lock(&command, cli.lock_wait, &config_path) {
+            Ok(g) => g,
+            Err(LockAcquireError::SkipInit) => {
+                println!(
+                    "✓ Config repository already present; system operation in progress — skipping init"
+                );
+                return Ok(());
+            }
+            Err(LockAcquireError::Other(e)) => return Err(e),
+        }
     };
 
     match command {
@@ -302,9 +314,19 @@ fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<Operatio
     }
 }
 
+enum LockAcquireError {
+    /// `neo init` hit a system switch lock and the config repo is already ready.
+    SkipInit,
+    Other(anyhow::Error),
+}
+
 /// Take the command's lock (waiting up to `wait_secs`). Exclusive scopes are
 /// exported to child processes so nested `neo` calls do not block on them.
-fn acquire_command_lock(command: &Commands, wait_secs: Option<u64>) -> Result<Option<LockGuard>> {
+fn try_acquire_command_lock(
+    command: &Commands,
+    wait_secs: Option<u64>,
+    config_path: &str,
+) -> std::result::Result<Option<LockGuard>, LockAcquireError> {
     let Some((spec, info, web_op)) = command_lock(command) else {
         return Ok(None);
     };
@@ -319,7 +341,42 @@ fn acquire_command_lock(command: &Commands, wait_secs: Option<u64>) -> Result<Op
             if let Some(op) = web_op {
                 op.write_state("failed", "locked", Some(&msg), None);
             }
-            Err(anyhow::anyhow!(msg))
+            if matches!(command, Commands::Init)
+                && init_skippable_while_system_locked(&e, config_path)
+            {
+                return Err(LockAcquireError::SkipInit);
+            }
+            Err(LockAcquireError::Other(anyhow::anyhow!(msg)))
         }
     }
+}
+
+/// True when a concurrent activate/update/generation holds `system` and the
+/// server config repo already looks initialized (git + flake). Used so
+/// neo-bootstrap's `neo init` does not fail the switch under Activation.
+fn init_skippable_while_system_locked(err: &LockError, config_path: &str) -> bool {
+    let LockError::Conflict(c) = err else {
+        return false;
+    };
+    let switch_kind = |k: &str| matches!(k, "activation" | "update" | "generation");
+    let holders = if c.holders.is_empty() {
+        LockManager::system().holders()
+    } else {
+        c.holders.clone()
+    };
+    let blocked_by_switch = if holders.is_empty() {
+        // Holder file gone already; match the conflict message label.
+        let m = c.to_string();
+        m.contains("Activation in progress")
+            || m.contains("Update in progress")
+            || m.contains("Generation switch in progress")
+            || m.contains("Flake input update in progress")
+    } else {
+        holders.iter().any(|h| switch_kind(&h.kind))
+    };
+    if !blocked_by_switch {
+        return false;
+    }
+    let p = std::path::Path::new(config_path);
+    p.join(".git").is_dir() && p.join("flake.nix").is_file()
 }

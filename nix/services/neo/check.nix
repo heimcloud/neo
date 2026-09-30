@@ -86,6 +86,9 @@
     webAfter = builtins.elem "neo-bootstrap.service" (web.after or []);
     wanted = builtins.elem "multi-user.target" (bootstrap.wantedBy or []);
     runsAsHomeserver = (bootstrap.serviceConfig.User or "") == "homeserver";
+    noRestartOnSwitch =
+      (bootstrap.stopIfChanged or true) == false
+      && (bootstrap.restartIfChanged or true) == false;
   in {
     checks.neo-bootstrap = pkgs.runCommand "neo-bootstrap" {} ''
       set -euo pipefail
@@ -109,6 +112,10 @@
       ''}
       ${lib.optionalString (!runsAsHomeserver) ''
         echo "FAIL neo-bootstrap main process must run as homeserver" >&2
+        exit 1
+      ''}
+      ${lib.optionalString (!noRestartOnSwitch) ''
+        echo "FAIL neo-bootstrap must set stopIfChanged=restartIfChanged=false so activate does not restart it under the system lock" >&2
         exit 1
       ''}
       if grep -q 'systemd.services.neo-bootstrap' ${./../system-updater/default.nix}; then
