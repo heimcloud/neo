@@ -23,7 +23,7 @@ use crate::commands::{
     update_inputs::update_inputs,
     web::web,
 };
-use crate::utils::locks::{LockError, LockGuard, LockManager, LockSpec, OpInfo};
+use crate::utils::locks::{LockError, LockGuard, LockManager, LockSpec, OpInfo, Scope};
 use crate::utils::{
     execute_command, load_or_default_settings, resolve_config_path, resolve_profile,
     set_profile_str, OperationKind, OperationLog,
@@ -331,7 +331,8 @@ fn try_acquire_command_lock(
         return Ok(None);
     };
     let wait = std::time::Duration::from_secs(wait_secs.unwrap_or(0));
-    match LockManager::system().acquire(&spec, &info, wait) {
+    let locks = LockManager::system();
+    match locks.acquire(&spec, &info, wait) {
         Ok(guard) => {
             guard.export_to_children();
             Ok(Some(guard))
@@ -342,7 +343,7 @@ fn try_acquire_command_lock(
                 op.write_state("failed", "locked", Some(&msg), None);
             }
             if matches!(command, Commands::Init)
-                && init_skippable_while_system_locked(&e, config_path)
+                && init_skippable_while_system_locked(&locks, &e, config_path)
             {
                 return Err(LockAcquireError::SkipInit);
             }
@@ -354,29 +355,105 @@ fn try_acquire_command_lock(
 /// True when a concurrent activate/update/generation holds `system` and the
 /// server config repo already looks initialized (git + flake). Used so
 /// neo-bootstrap's `neo init` does not fail the switch under Activation.
-fn init_skippable_while_system_locked(err: &LockError, config_path: &str) -> bool {
+/// Only the holder files' `kind` decides; a conflict without holder info
+/// (raw `flock(1)`, or the holder already gone) is not skipped.
+fn init_skippable_while_system_locked(
+    locks: &LockManager,
+    err: &LockError,
+    config_path: &str,
+) -> bool {
     let LockError::Conflict(c) = err else {
         return false;
     };
-    let switch_kind = |k: &str| matches!(k, "activation" | "update" | "generation");
+    if c.scope != Scope::System {
+        return false;
+    }
     let holders = if c.holders.is_empty() {
-        LockManager::system().holders()
+        locks.holders()
     } else {
         c.holders.clone()
     };
-    let blocked_by_switch = if holders.is_empty() {
-        // Holder file gone already; match the conflict message label.
-        let m = c.to_string();
-        m.contains("Activation in progress")
-            || m.contains("Update in progress")
-            || m.contains("Generation switch in progress")
-            || m.contains("Flake input update in progress")
-    } else {
-        holders.iter().any(|h| switch_kind(&h.kind))
-    };
+    let blocked_by_switch = holders
+        .iter()
+        .filter(|h| h.blocks(&Scope::System, c.wanted))
+        .any(|h| matches!(h.kind.as_str(), "activation" | "update" | "generation"));
     if !blocked_by_switch {
         return false;
     }
     let p = std::path::Path::new(config_path);
     p.join(".git").is_dir() && p.join("flake.nix").is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn tmp(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("neo-main-test-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&p);
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn init_conflict(m: &LockManager) -> LockError {
+        match m.try_acquire(
+            &LockSpec::system_change(),
+            &OpInfo::new("init", "Config init"),
+        ) {
+            Err(e) => e,
+            Ok(_) => panic!("expected conflict"),
+        }
+    }
+
+    fn ready_repo(name: &str) -> PathBuf {
+        let repo = tmp(name);
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join("flake.nix"), "{}").unwrap();
+        repo
+    }
+
+    #[test]
+    fn init_skipped_under_activation_when_repo_ready() {
+        let m = LockManager::new(tmp("skip-run"));
+        let _act = m
+            .try_acquire(
+                &LockSpec::system_change(),
+                &OpInfo::new("activation", "Activation"),
+            )
+            .unwrap();
+        let e = init_conflict(&m);
+        let repo = ready_repo("skip-repo");
+        assert!(init_skippable_while_system_locked(
+            &m,
+            &e,
+            repo.to_str().unwrap()
+        ));
+        // Uninitialized repo: init must still run (and fail on the lock).
+        let empty = tmp("skip-empty");
+        assert!(!init_skippable_while_system_locked(
+            &m,
+            &e,
+            empty.to_str().unwrap()
+        ));
+    }
+
+    #[test]
+    fn init_not_skipped_for_other_holders() {
+        let m = LockManager::new(tmp("noskip-run"));
+        let _op = m
+            .try_acquire(
+                &LockSpec::system_change(),
+                &OpInfo::new("restore", "Data restore"),
+            )
+            .unwrap();
+        let e = init_conflict(&m);
+        let repo = ready_repo("noskip-repo");
+        assert!(!init_skippable_while_system_locked(
+            &m,
+            &e,
+            repo.to_str().unwrap()
+        ));
+    }
 }
