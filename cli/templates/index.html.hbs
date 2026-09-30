@@ -139,8 +139,8 @@
 
     {{!-- Store repair / update progress from the nav error banner (static/op_monitor.js). --}}
     <dialog id="changes-modal" class="modal modal-bottom sm:modal-middle">
-      <div class="modal-box max-w-4xl p-0 flex flex-col max-h-[85dvh]">
-        <div class="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-base-300">
+      <div class="modal-box neo-changes-modal-box max-w-4xl p-0 flex flex-col w-full">
+        <div class="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-base-300 shrink-0">
           <h3 id="changes-modal-title" class="font-semibold text-lg min-w-0 truncate">Nix store repair</h3>
           <form method="dialog">
             <button type="submit" class="btn btn-sm btn-ghost btn-square" aria-label="Close">
@@ -148,7 +148,7 @@
             </button>
           </form>
         </div>
-        <div id="changes-body" class="px-4 sm:px-6 py-4 overflow-auto"></div>
+        <div id="changes-body" class="px-4 sm:px-6 py-4 min-h-0 flex-1 overflow-auto"></div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>

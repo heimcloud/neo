@@ -1251,6 +1251,10 @@ a.neo-sem-name:focus-visible {
   border-radius: var(--radius-box);
   overflow: hidden;
   border: 1px solid var(--color-base-300);
+  /* Fallback when not inside the flex modal layout. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .neo-op-output-bar {
   display: flex;
@@ -1260,9 +1264,18 @@ a.neo-sem-name:focus-visible {
   font-size: 11px;
   background-color: var(--color-base-200);
   border-bottom: 1px solid var(--color-base-300);
+  flex-shrink: 0;
+}
+.neo-op-log-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .neo-op-log {
   margin: 0;
+  /* Default height when the monitor is not stretched by the modal flex layout. */
   height: min(50vh, 28rem);
   overflow: auto;
   padding: 0.75rem 1rem;
@@ -1274,6 +1287,7 @@ a.neo-sem-name:focus-visible {
   background-color: var(--color-neutral);
   color: var(--color-neutral-content);
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .neo-op-log:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 .neo-op-jump {
@@ -1282,3 +1296,97 @@ a.neo-sem-name:focus-visible {
   bottom: 0.75rem;
 }
 .neo-op-jump[hidden] { display: none; }
+
+/* Terminal outcome banner: pinned under the log, never nested-scroll off-screen. */
+.neo-op-outcome {
+  flex-shrink: 0;
+  margin-top: 0.75rem;
+}
+.neo-op-outcome.hidden {
+  display: none;
+}
+
+/*
+ * Shared #changes-modal shell: safe-area aware max height, single flex column.
+ * Op monitors pin the outcome footer and scroll only the log.
+ */
+.neo-changes-modal-box {
+  max-height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 0.5rem));
+  /* Keep the sheet clear of the home indicator / gesture bar. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .neo-changes-modal-box {
+    max-height: min(85dvh, calc(100dvh - 2rem));
+  }
+}
+
+#changes-modal #changes-body {
+  min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Op monitor: fill the sheet; log is the only scroll container. */
+#changes-modal .modal-box:has(.neo-op),
+#changes-modal .modal-box:has([data-op-monitor]) {
+  /* Fixed height so flex children can shrink and the footer stays on-screen. */
+  height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 0.5rem));
+}
+@media (min-width: 640px) {
+  #changes-modal .modal-box:has(.neo-op),
+  #changes-modal .modal-box:has([data-op-monitor]) {
+    height: min(85dvh, calc(100dvh - 2rem));
+  }
+}
+
+#changes-modal #changes-body:has(.neo-op),
+#changes-modal #changes-body:has([data-op-monitor]) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* avoid nested body + log scroll */
+  /* Footer owns bottom spacing; keep side/top padding from the template. */
+  padding-bottom: 0.75rem;
+}
+
+#changes-modal .neo-op,
+#changes-modal [data-op-monitor] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+#changes-modal .neo-op-chrome {
+  flex-shrink: 0;
+}
+
+#changes-modal .neo-op-output {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#changes-modal .neo-op-log-wrap {
+  flex: 1 1 auto;
+  min-height: 8rem;
+}
+
+#changes-modal .neo-op-log {
+  /* Stretch into the flex slot instead of a fixed 50vh that pushes the footer off. */
+  height: 100%;
+  min-height: 8rem;
+  max-height: none;
+}
+
+#changes-modal .neo-op-outcome {
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 0.75rem;
+  /* Opaque so log content does not show through if anything still scrolls behind. */
+  background-color: var(--color-base-100);
+  padding-top: 0.25rem;
+}

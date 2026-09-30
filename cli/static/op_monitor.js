@@ -133,7 +133,9 @@
   Monitor.prototype.build = function () {
     var el = this.el;
     el.setAttribute('data-op-mounted', '');
+    el.classList.add('neo-op');
     el.innerHTML =
+      '<div class="neo-op-chrome">' +
       (this.note
         ? '<div role="note" class="alert alert-soft alert-info text-sm py-2 px-3 mb-3">' + esc(this.note) + '</div>'
         : '') +
@@ -142,7 +144,8 @@
       '  <span class="text-xs font-mono text-base-content/60 truncate min-w-0" data-el="phase"></span>' +
       '  <span class="neo-op-conn ml-auto" data-conn="connecting" data-el="conn"></span>' +
       '</div>' +
-      '<ol class="neo-op-steps mb-4" data-el="steps" hidden></ol>' +
+      '<ol class="neo-op-steps mb-3" data-el="steps" hidden></ol>' +
+      '</div>' +
       '<div class="neo-op-output">' +
       '  <div class="neo-op-output-bar">' +
       '    <span class="font-medium">Output</span>' +
@@ -151,12 +154,12 @@
       '    <span class="flex-1"></span>' +
       '    <button type="button" class="btn btn-ghost btn-xs" data-act="copy" title="Copy the output">Copy</button>' +
       '  </div>' +
-      '  <div class="relative">' +
+      '  <div class="neo-op-log-wrap">' +
       '    <pre class="neo-op-log" data-el="log" tabindex="0" aria-live="off"></pre>' +
       '    <button type="button" class="neo-op-jump btn btn-sm btn-neutral shadow-lg gap-1" data-act="jump" hidden>' + ICON_DOWN + 'Latest</button>' +
       '  </div>' +
       '</div>' +
-      '<div class="mt-4 hidden" data-el="outcome"></div>';
+      '<div class="neo-op-outcome hidden" data-el="outcome"></div>';
 
     var q = function (name) {
       return el.querySelector('[data-el="' + name + '"]');
@@ -261,9 +264,9 @@
     this.outcomeEl.classList.remove('hidden');
     var tone = out.tone === 'success' ? 'alert-success' : out.tone === 'error' ? 'alert-error' : '';
     this.outcomeEl.innerHTML =
-      '<div role="status" class="alert alert-soft ' + tone + ' text-sm py-2.5 px-3 flex flex-wrap items-center gap-3">' +
+      '<div role="status" class="alert alert-soft ' + tone + ' text-sm py-2.5 px-3 flex flex-wrap items-center gap-3 w-full">' +
       '<span class="min-w-0 flex-1 whitespace-pre-wrap break-words">' + esc(out.text) + '</span>' +
-      '<span class="flex gap-2 ml-auto">' +
+      '<span class="flex gap-2 shrink-0 sm:ml-auto">' +
       (out.reload
         ? '<button type="button" class="btn btn-sm btn-success" data-act="reload">Reload</button>'
         : '<button type="button" class="btn btn-sm" data-act="close">Close</button>') +
