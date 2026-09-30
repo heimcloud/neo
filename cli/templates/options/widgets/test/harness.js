@@ -34,7 +34,8 @@ function defaultForType(type) {
     case 'port': return (t.min != null) ? t.min : 0;
     case 'float': return 0;
     case 'str':
-    case 'path': return '';
+    case 'path':
+    case 'strMatching': return '';
     case 'enum': return (t.values && t.values.length) ? t.values[0] : '';
     case 'listOf': return [];
     case 'attrsOf': return {};

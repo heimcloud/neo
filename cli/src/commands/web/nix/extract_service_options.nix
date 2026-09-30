@@ -219,6 +219,10 @@
     then "float"
     else if rawName == "lazyAttrsOf"
     then "attrsOf"
+    # types.strMatching embeds the regex in `name` ("strMatching \"…\"");
+    # normalize so getTypeInfo can key on a stable kind.
+    else if builtins.substring 0 11 rawName == "strMatching"
+    then "strMatching"
     else rawName;
 
   callGetSubOptions = t: prefix:
@@ -389,6 +393,23 @@
     then {kind = "str";}
     else if n == "path"
     then {kind = "path";}
+    else if n == "strMatching" || fName == "strMatching"
+    then let
+      pat =
+        if builtins.isAttrs fPayload && builtins.hasAttr "pattern" fPayload
+        then fPayload.pattern
+        else if builtins.typeOf fPayload == "string"
+        then fPayload
+        else let
+          m = builtins.match "string matching the pattern (.*)" desc;
+        in
+          if builtins.isList m && builtins.length m >= 1
+          then builtins.elemAt m 0
+          else null;
+    in {
+      kind = "strMatching";
+      pattern = pat;
+    }
     else if n == "enum"
     then {
       kind = "enum";
@@ -445,6 +466,13 @@
       else "float"
     else if k == "enum"
     then "enum"
+    else if k == "strMatching"
+    then let
+      p = info.pattern or null;
+    in
+      if p != null && p != ""
+      then "str matching ${p}"
+      else "strMatching"
     else k;
 
   # Named dynamic choice lists for ui.choices (multi-select on listOf str).

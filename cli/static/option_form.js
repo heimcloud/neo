@@ -71,6 +71,7 @@ function optionForm() {
           return 0;
         case 'str':
         case 'path':
+        case 'strMatching':
           return '';
         case 'enum':
           return (t.values && t.values.length) ? t.values[0] : '';
@@ -276,6 +277,52 @@ function optionForm() {
         const w = neoWidget(this.optUi(name)?.widget);
         if (w && typeof w.validate === 'function') {
           (w.validate.call(this, name) || []).forEach((msg) => out.push(msg));
+        }
+      });
+      return out;
+    },
+
+    /**
+     * Live / save-time check for types.strMatching (and nullOr of it).
+     * Nix builtins.match is whole-string; JS mirrors that with ^(?:…)$.
+     * Unusable JS patterns skip client checks (activate still enforces).
+     */
+    patternErrorForType(type, value) {
+      if (!type) return '';
+      let t = type;
+      let v = value;
+      if (t.kind === 'nullOr') {
+        if (v === null || v === undefined || v === '') return '';
+        t = t.elem || {};
+      }
+      if (t.kind !== 'strMatching') return '';
+      const pat = t.pattern;
+      if (!pat) return '';
+      const s = v == null ? '' : String(v);
+      try {
+        const re = new RegExp('^(?:' + pat + ')$');
+        if (!re.test(s)) return 'Must match /' + pat + '/';
+      } catch (_) {
+        return '';
+      }
+      return '';
+    },
+
+    patternError(name) {
+      const opt = this.optionsByName[name];
+      if (!opt) return '';
+      return this.patternErrorForType(opt.type, this.values[name]);
+    },
+
+    /** Top-level scalar pattern failures (strMatching). */
+    scalarValidationErrors() {
+      const out = [];
+      Object.keys(this.optionsByName || {}).forEach((name) => {
+        if (typeof this.isFieldVisible === 'function' && !this.isFieldVisible(name)) return;
+        const msg = this.patternError(name);
+        if (msg) {
+          const label = this.optionsByName[name]?.label || name;
+          out.push(label + ': ' + msg);
         }
       });
       return out;
@@ -760,7 +807,7 @@ function optionForm() {
         }
       });
 
-      const invalid = this.widgetValidationErrors();
+      const invalid = this.widgetValidationErrors().concat(this.scalarValidationErrors());
       if (invalid.length) {
         this.saveFlash = 'err';
         this.saveError = invalid[0] + (invalid.length > 1 ? ` (+${invalid.length - 1} more)` : '');
