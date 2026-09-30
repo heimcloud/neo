@@ -40,11 +40,11 @@
          data-option="{{name}}" x-show="isFieldVisible('{{name}}')">
       {{> options/field_head}}
       <div class="mt-2 md:mt-0">
-        {{#if (or (eq type.kind "str") (eq type.kind "path") (eq type.kind "strMatching"))}}
+        {{#if (or (eq type.kind "str") (or (eq type.kind "path") (eq type.kind "strMatching")))}}
           {{> options/str}}
         {{else}}{{#if (eq type.kind "nullOr")}}
           {{> options/null_or}}
-        {{else}}{{#if (or (eq type.kind "int") (eq type.kind "port") (eq type.kind "float"))}}
+        {{else}}{{#if (or (eq type.kind "int") (or (eq type.kind "port") (eq type.kind "float")))}}
           {{> options/number}}
         {{else}}{{#if (eq type.kind "enum")}}
           {{> options/enum}}
