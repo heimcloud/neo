@@ -93,15 +93,37 @@ pub fn activate(
     }
 
     op.write_state("in_progress", "pre-rebuild", None, Some(&activation_branch));
-    for action in ["reset-failed", "stop"] {
-        let _ = Command::new(sudo_cmd)
-            .current_dir(config_path)
-            .args([
-                "systemctl",
-                action,
-                "nixos-rebuild-switch-to-configuration.service",
-            ])
-            .status();
+    // Best-effort clear of a leftover nixos-rebuild transient unit. The unit is
+    // only loaded while a switch is in flight (or leftover failed); when it is
+    // not loaded, systemctl prints "Unit … not loaded" on stderr. Status is
+    // already ignored — also silence stdio so those lines do not pollute the
+    // activation log/UI on every successful activate.
+    let rebuild_unit = "nixos-rebuild-switch-to-configuration.service";
+    let unit_loaded = Command::new(sudo_cmd)
+        .current_dir(config_path)
+        .args([
+            "systemctl",
+            "show",
+            "-p",
+            "LoadState",
+            "--value",
+            rebuild_unit,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .is_some_and(|s| s.trim() == "loaded");
+    if unit_loaded {
+        for action in ["reset-failed", "stop"] {
+            let _ = Command::new(sudo_cmd)
+                .current_dir(config_path)
+                .args(["systemctl", action, rebuild_unit])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
     }
     let mut rebuild = Command::new(sudo_cmd);
     rebuild
