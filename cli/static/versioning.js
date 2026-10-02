@@ -502,9 +502,12 @@ window.versioningPage = function versioningPage() {
     },
 
     clock(ts) {
-      if (!ts) return '';
-      var d = new Date(ts * 1000);
-      return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      return VT.clockTime(ts);
+    },
+
+    /** Collapsed row time: HH:MM today; "N days ago · HH:MM" when older. */
+    quickTime(ts) {
+      return VT.quickTime(ts, this.now);
     },
 
     fullTime(ts) {
@@ -517,19 +520,7 @@ window.versioningPage = function versioningPage() {
     },
 
     relTime(ts) {
-      if (!ts) return '';
-      var s = Math.max(0, this.now - ts);
-      if (s < 60) return 'just now';
-      var m = Math.floor(s / 60);
-      if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
-      var h = Math.floor(m / 60);
-      if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
-      var d = Math.floor(h / 24);
-      if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
-      var mo = Math.floor(d / 30);
-      if (mo < 12) return mo + (mo === 1 ? ' month ago' : ' months ago');
-      var y = Math.floor(d / 365);
-      return y + (y === 1 ? ' year ago' : ' years ago');
+      return VT.relTime(ts, this.now);
     },
 
     rowTime(row) {

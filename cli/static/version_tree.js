@@ -56,6 +56,58 @@
     return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
   }
 
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  /** Local HH:MM for a unix timestamp (seconds). */
+  function clockTime(ts) {
+    if (!ts) return '';
+    var d = new Date(ts * 1000);
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function sameCalendarDay(ts, nowTs) {
+    if (!ts) return false;
+    var d = new Date(ts * 1000);
+    var n = new Date((nowTs != null ? nowTs : Date.now() / 1000) * 1000);
+    return (
+      d.getFullYear() === n.getFullYear() &&
+      d.getMonth() === n.getMonth() &&
+      d.getDate() === n.getDate()
+    );
+  }
+
+  /** Relative age from `nowTs` (unix seconds; default now). */
+  function relTime(ts, nowTs) {
+    if (!ts) return '';
+    var now = nowTs != null ? nowTs : Date.now() / 1000;
+    var s = Math.max(0, now - ts);
+    if (s < 60) return 'just now';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    var d = Math.floor(h / 24);
+    if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
+    var mo = Math.floor(d / 30);
+    if (mo < 12) return mo + (mo === 1 ? ' month ago' : ' months ago');
+    var y = Math.floor(d / 365);
+    return y + (y === 1 ? ' year ago' : ' years ago');
+  }
+
+  /**
+   * Collapsed timeline subtitle time: clock only on the same calendar day as
+   * `nowTs`; otherwise relative age plus clock so age is visible without expand.
+   */
+  function quickTime(ts, nowTs) {
+    if (!ts) return '';
+    var c = clockTime(ts);
+    if (sameCalendarDay(ts, nowTs)) return c;
+    var rel = relTime(ts, nowTs);
+    return rel ? rel + ' · ' + c : c;
+  }
+
   /**
    * Interleave day separators with rows (newest first). Returns
    * `{ type: 'day', key, ts }` and `{ type: 'row', key, index, row }`.
@@ -120,6 +172,10 @@
     laneX: laneX,
     edgePath: edgePath,
     dayKey: dayKey,
+    clockTime: clockTime,
+    sameCalendarDay: sameCalendarDay,
+    relTime: relTime,
+    quickTime: quickTime,
     withDays: withDays,
     changeText: changeText,
     commitNote: commitNote,

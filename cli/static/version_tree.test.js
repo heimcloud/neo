@@ -82,3 +82,18 @@ test('changeText summarises settings changes', () => {
   );
   assert.equal(VT.changeText({ inputs: ['neo', 'nixpkgs'] }), 'Updated neo, nixpkgs');
 });
+
+test('quickTime keeps clock-only today and adds relative age otherwise', () => {
+  // Fixed local wall clock: 2026-10-02 15:30
+  const now = new Date(2026, 9, 2, 15, 30, 0).getTime() / 1000;
+  const todayMorning = new Date(2026, 9, 2, 10, 35, 0).getTime() / 1000;
+  const twoDaysAgo = new Date(2026, 8, 30, 10, 35, 0).getTime() / 1000;
+  assert.equal(VT.clockTime(todayMorning), '10:35');
+  assert.equal(VT.quickTime(todayMorning, now), '10:35');
+  assert.equal(VT.sameCalendarDay(todayMorning, now), true);
+  assert.equal(VT.sameCalendarDay(twoDaysAgo, now), false);
+  assert.equal(VT.relTime(twoDaysAgo, now), '2 days ago');
+  assert.equal(VT.quickTime(twoDaysAgo, now), '2 days ago · 10:35');
+  assert.equal(VT.quickTime(0, now), '');
+  assert.equal(VT.quickTime(null, now), '');
+});
