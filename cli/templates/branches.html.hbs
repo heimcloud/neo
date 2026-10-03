@@ -257,7 +257,7 @@
                         </span>
                         <span class="text-xs text-base-content/55 truncate">
                           <span x-text="commitKindLabel(it.row.commit)"></span>
-                          · <span x-text="clock(it.row.commit.timestamp)" :title="fullTime(it.row.commit.timestamp)"></span>
+                          · <span x-text="quickTime(it.row.commit.timestamp)" :title="fullTime(it.row.commit.timestamp)"></span>
                           · <span class="font-mono" x-text="it.row.commit.short"></span>
                         </span>
                       </span>
@@ -288,7 +288,7 @@
                       <span class="text-xs text-base-content/55 truncate max-w-full">
                         <span x-text="sysSubtitle(it.row)"></span>
                         <template x-if="!it.row.commit">
-                          <span>· <span x-text="clock(rowTime(it.row))" :title="fullTime(rowTime(it.row))"></span></span>
+                          <span>· <span x-text="quickTime(rowTime(it.row))" :title="fullTime(rowTime(it.row))"></span></span>
                         </template>
                       </span>
                     </span>

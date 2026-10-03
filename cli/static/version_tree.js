@@ -77,6 +77,46 @@
     return out;
   }
 
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  /** Local wall-clock time `HH:MM`, or '' without a timestamp. */
+  function clock(ts) {
+    if (!ts) return '';
+    var d = new Date(ts * 1000);
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  /** Relative age as in the detail view: `just now`, `5 minutes ago`, `2 days ago`, … */
+  function relAge(ts, nowSec) {
+    if (!ts) return '';
+    var s = Math.max(0, nowSec - ts);
+    if (s < 60) return 'just now';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    var d = Math.floor(h / 24);
+    if (d < 30) return d + (d === 1 ? ' day ago' : ' days ago');
+    var mo = Math.floor(d / 30);
+    if (mo < 12) return mo + (mo === 1 ? ' month ago' : ' months ago');
+    var y = Math.floor(d / 365);
+    return y + (y === 1 ? ' year ago' : ' years ago');
+  }
+
+  /**
+   * Time on a collapsed history row (quick view): the clock alone for an entry
+   * from today's calendar day, otherwise the relative age plus the clock
+   * (`2 days ago, 14:05`), so an older entry never reads like one from today.
+   */
+  function quickTime(ts, nowSec) {
+    if (!ts) return '';
+    var now = nowSec == null ? Date.now() / 1000 : nowSec;
+    if (dayKey(ts) === dayKey(now)) return clock(ts);
+    return relAge(ts, now) + ', ' + clock(ts);
+  }
+
   function listText(names, max) {
     max = max || 2;
     if (names.length <= max) return names.join(', ');
@@ -121,6 +161,9 @@
     edgePath: edgePath,
     dayKey: dayKey,
     withDays: withDays,
+    clock: clock,
+    relAge: relAge,
+    quickTime: quickTime,
     changeText: changeText,
     commitNote: commitNote,
     genNote: genNote,

@@ -82,3 +82,28 @@ test('changeText summarises settings changes', () => {
   );
   assert.equal(VT.changeText({ inputs: ['neo', 'nixpkgs'] }), 'Updated neo, nixpkgs');
 });
+
+test('quickTime: clock only for today, relative age plus clock for older entries', () => {
+  const at = (y, mo, d, h, mi) => new Date(y, mo - 1, d, h, mi).getTime() / 1000;
+  const now = at(2026, 3, 10, 9, 30);
+  assert.equal(VT.quickTime(at(2026, 3, 10, 0, 5), now), '00:05');
+  assert.equal(VT.quickTime(at(2026, 3, 10, 9, 29), now), '09:29');
+  // Yesterday late evening: under 24 h old, still a different calendar day.
+  assert.equal(VT.quickTime(at(2026, 3, 9, 23, 50), now), '9 hours ago, 23:50');
+  assert.equal(VT.quickTime(at(2026, 3, 8, 14, 5), now), '1 day ago, 14:05');
+  assert.equal(VT.quickTime(at(2026, 3, 1, 7, 0), now), '9 days ago, 07:00');
+  assert.equal(VT.quickTime(at(2025, 12, 1, 18, 45), now), '3 months ago, 18:45');
+  assert.equal(VT.quickTime(0, now), '');
+  assert.equal(VT.quickTime(null, now), '');
+});
+
+test('relAge matches the detail view wording', () => {
+  const now = 1_800_000_000;
+  assert.equal(VT.relAge(now - 10, now), 'just now');
+  assert.equal(VT.relAge(now - 60, now), '1 minute ago');
+  assert.equal(VT.relAge(now - 7200, now), '2 hours ago');
+  assert.equal(VT.relAge(now - 86400, now), '1 day ago');
+  assert.equal(VT.relAge(now - 400 * 86400, now), '1 year ago');
+  assert.equal(VT.relAge(now + 50, now), 'just now', 'clock skew never goes negative');
+  assert.equal(VT.clock(0), '');
+});
