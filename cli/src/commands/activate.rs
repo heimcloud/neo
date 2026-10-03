@@ -93,38 +93,9 @@ pub fn activate(
     }
 
     op.write_state("in_progress", "pre-rebuild", None, Some(&activation_branch));
-    // Best-effort clear of a leftover nixos-rebuild transient unit. The unit is
-    // only loaded while a switch is in flight (or leftover failed); when it is
-    // not loaded, systemctl prints "Unit … not loaded" on stderr. Status is
-    // already ignored — also silence stdio so those lines do not pollute the
-    // activation log/UI on every successful activate.
-    let rebuild_unit = "nixos-rebuild-switch-to-configuration.service";
-    let unit_loaded = Command::new(sudo_cmd)
-        .current_dir(config_path)
-        .args([
-            "systemctl",
-            "show",
-            "-p",
-            "LoadState",
-            "--value",
-            rebuild_unit,
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .is_some_and(|s| s.trim() == "loaded");
-    if unit_loaded {
-        for action in ["reset-failed", "stop"] {
-            let _ = Command::new(sudo_cmd)
-                .current_dir(config_path)
-                .args(["systemctl", action, rebuild_unit])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-        }
-    }
+    // Best-effort clear of a leftover nixos-rebuild transient unit (see
+    // `rebuild_unit_preclean_actions`); nothing runs when it is not loaded.
+    preclean_rebuild_unit(sudo_cmd, config_path);
     let mut rebuild = Command::new(sudo_cmd);
     rebuild
         .current_dir(config_path)
@@ -178,6 +149,61 @@ pub fn activate(
     Ok(())
 }
 
+const REBUILD_UNIT: &str = "nixos-rebuild-switch-to-configuration.service";
+
+/// Clear a leftover `nixos-rebuild` transient unit before the switch. The unit
+/// is only loaded while a switch is in flight or after one failed; asking
+/// systemctl to reset/stop it otherwise prints "Unit … not loaded" /
+/// "Failed to stop …" on every activate. So read LoadState/ActiveState first
+/// and only act on a loaded unit; stdio stays silenced, status is ignored.
+fn preclean_rebuild_unit(sudo_cmd: &str, config_path: &str) {
+    let show = Command::new(sudo_cmd)
+        .current_dir(config_path)
+        .args([
+            "systemctl",
+            "show",
+            "-p",
+            "LoadState",
+            "-p",
+            "ActiveState",
+            REBUILD_UNIT,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+    for action in rebuild_unit_preclean_actions(&show) {
+        let _ = Command::new(sudo_cmd)
+            .current_dir(config_path)
+            .args(["systemctl", action, REBUILD_UNIT])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// systemctl actions for the rebuild unit, from `systemctl show -p LoadState
+/// -p ActiveState` output: none unless it is loaded; `reset-failed` for a
+/// failed leftover; `reset-failed` + `stop` for one still running.
+fn rebuild_unit_preclean_actions(show: &str) -> &'static [&'static str] {
+    let prop = |key: &str| {
+        show.lines()
+            .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix('='))
+            .map(str::trim)
+            .unwrap_or("")
+    };
+    if prop("LoadState") != "loaded" {
+        return &[];
+    }
+    match prop("ActiveState") {
+        "failed" => &["reset-failed"],
+        "inactive" => &[],
+        _ => &["reset-failed", "stop"],
+    }
+}
+
 /// Embed generation number in the activation commit message (no sidecar files).
 /// `has_activation_commit` is true when this run created/amended a real Activation commit
 /// (dirty tree); otherwise we add an empty commit so re-activates still get history + gen.
@@ -202,5 +228,35 @@ fn record_gen_after_activate(
         Err(e) => {
             eprintln!("warning: could not record generation in commit: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rebuild_unit_preclean_actions as actions;
+
+    #[test]
+    fn preclean_skips_a_unit_that_is_not_loaded() {
+        assert!(actions("LoadState=not-found\nActiveState=inactive\n").is_empty());
+        assert!(actions("LoadState=not-found\n").is_empty());
+        // systemctl failed / printed nothing.
+        assert!(actions("").is_empty());
+    }
+
+    #[test]
+    fn preclean_acts_only_as_far_as_needed_on_a_loaded_unit() {
+        assert_eq!(
+            actions("LoadState=loaded\nActiveState=failed\n"),
+            ["reset-failed"]
+        );
+        assert!(actions("LoadState=loaded\nActiveState=inactive\n").is_empty());
+        assert_eq!(
+            actions("ActiveState=active\nLoadState=loaded\n"),
+            ["reset-failed", "stop"]
+        );
+        assert_eq!(
+            actions("LoadState=loaded\nActiveState=activating\n"),
+            ["reset-failed", "stop"]
+        );
     }
 }
