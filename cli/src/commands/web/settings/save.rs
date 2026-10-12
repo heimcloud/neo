@@ -5,6 +5,7 @@ use rocket::http::Status;
 use toml_edit::{DocumentMut, Table};
 
 use super::{insert_dotted, json_to_toml_item, json_to_toml_value};
+use crate::commands::migrate::apply_migrations;
 use crate::commands::web::action_bar::broadcast_action_bar;
 use crate::commands::web::types::AppConfig;
 use crate::utils::sort_document_alphabetically;
@@ -26,6 +27,7 @@ pub fn load_settings_doc(path: &Path) -> Result<DocumentMut, Status> {
 }
 
 pub fn write_settings_doc(path: &Path, doc: &mut DocumentMut) -> Result<(), Status> {
+    apply_migrations(doc);
     sort_document_alphabetically(doc);
     fs::write(path, doc.to_string()).map_err(|_| Status::InternalServerError)
 }

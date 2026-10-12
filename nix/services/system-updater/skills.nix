@@ -34,7 +34,7 @@
         ## Procedures
         1. Check timer schedule (`services.system-updater.schedule`)
         2. Manual update when needed
-        3. Inspect GC setting `garbageCollectOlderThen` (default 30d; null disables GC)
+        3. Inspect GC setting `garbageCollectOlderThan` (default 30d; null disables GC)
         4. With GC on, `nix.settings.keep-outputs` is enabled so live build-time outputs stay until their generation ages out
         5. `activationMode`: `switch` (default, live nixos-rebuild switch) or `boot` (nixos-rebuild boot only — profile advances, running system until reboot). Prefer `boot` on edge boxes where unattended live switch freezes dhcpcd/journald. Interactive web Activate stays switch unless you pass the flag.
         6. Run history is this service's appdata `${updaterDir}/system/` (`<utc>-<pid>.json` + `.log`). JSON records `activation_mode` and `reboot_pending` (profile vs `/run/current-system`). `${updaterDir}/system/last.json` is retargeted at run start (in-progress stub) so a crash never leaves it on an older run. Clear appdata in Neo web wipes the history.

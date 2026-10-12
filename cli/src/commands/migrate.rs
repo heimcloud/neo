@@ -46,7 +46,8 @@ pub fn migrate(config_path: &str, source_settings: &Path, dry_run: bool) -> Resu
     Ok(())
 }
 
-fn apply_migrations(doc: &mut DocumentMut) -> bool {
+/// Apply pending settings migrations in place. Returns true if the document changed.
+pub(crate) fn apply_migrations(doc: &mut DocumentMut) -> bool {
     let mut applied = get_applied(doc);
     let orig = applied.len();
     // Path renames first, then migrations that need more than renames.
@@ -99,6 +100,10 @@ const CUSTOM_MIGRATIONS: &[(&str, MigrationFn)] = &[
         migrate_007_neo_cli_profile_inputs,
     ),
     ("008-core-git-identity", migrate_008_core_git_identity),
+    (
+        "009-system-updater-gc-older-than",
+        migrate_009_system_updater_gc_older_than,
+    ),
 ];
 
 /// Delete retired [neo-service] and [nixos] tables.
@@ -131,10 +136,11 @@ fn absorb_retired_service_table(doc: &mut DocumentMut, svc_item: &Item) {
     if let Some(v) = svc.get("autoUpdateTimer") {
         insert_dotted(doc, "services.system-updater.schedule", v.clone());
     }
+    // Legacy neo-service key kept the misspelling; write the corrected option name.
     if let Some(v) = svc.get("garbageCollectOlderThen") {
         insert_dotted(
             doc,
-            "services.system-updater.garbageCollectOlderThen",
+            "services.system-updater.garbageCollectOlderThan",
             v.clone(),
         );
     }
@@ -396,6 +402,22 @@ fn migrate_008_core_git_identity(doc: &mut DocumentMut) {
     }
 }
 
+/// Fix system-updater GC option typo: OlderThen → OlderThan.
+/// Existing corrected key wins; the misspelled key is always dropped.
+fn migrate_009_system_updater_gc_older_than(doc: &mut DocumentMut) {
+    let Some(val) = remove_dotted(doc, "services.system-updater.garbageCollectOlderThen") else {
+        return;
+    };
+    let taken = doc
+        .get("services")
+        .and_then(|t| t.get("system-updater"))
+        .and_then(|t| t.as_table_like())
+        .is_some_and(|t| t.contains_key("garbageCollectOlderThan"));
+    if !taken {
+        insert_dotted(doc, "services.system-updater.garbageCollectOlderThan", val);
+    }
+}
+
 fn profile_has_key(doc: &DocumentMut, profile: &str, key: &str) -> bool {
     doc.get("neo-cli")
         .and_then(|t| t.get(profile))
@@ -584,10 +606,11 @@ repoUrl = "https://example.test/cfg.git"
         );
         assert_eq!(
             updater
-                .get("garbageCollectOlderThen")
+                .get("garbageCollectOlderThan")
                 .and_then(|v| v.as_str()),
             Some("7d")
         );
+        assert!(updater.get("garbageCollectOlderThen").is_none());
 
         let plugins = doc
             .get("core")
@@ -911,5 +934,55 @@ xaiApiKey = "secret-xai"
             llm.get("apiKey").and_then(|v| v.as_str()),
             Some("secret-xai")
         );
+    }
+
+    #[test]
+    fn migration_009_renames_gc_older_then_to_than() {
+        let raw = r#"
+[services.system-updater]
+enabled = true
+garbageCollectOlderThen = "30d"
+"#;
+        let mut doc: DocumentMut = raw.parse().unwrap();
+        assert!(apply_migrations(&mut doc));
+        let updater = doc
+            .get("services")
+            .and_then(|s| s.get("system-updater"))
+            .and_then(|t| t.as_table())
+            .expect("services.system-updater");
+        assert_eq!(
+            updater
+                .get("garbageCollectOlderThan")
+                .and_then(|v| v.as_str()),
+            Some("30d")
+        );
+        assert!(updater.get("garbageCollectOlderThen").is_none());
+        assert!(
+            !apply_migrations(&mut doc),
+            "second run must report no further migrations"
+        );
+    }
+
+    #[test]
+    fn migration_009_keeps_existing_than_and_drops_then() {
+        let raw = r#"
+[services.system-updater]
+garbageCollectOlderThan = "60d"
+garbageCollectOlderThen = "7d"
+"#;
+        let mut doc: DocumentMut = raw.parse().unwrap();
+        assert!(apply_migrations(&mut doc));
+        let updater = doc
+            .get("services")
+            .and_then(|s| s.get("system-updater"))
+            .and_then(|t| t.as_table())
+            .expect("services.system-updater");
+        assert_eq!(
+            updater
+                .get("garbageCollectOlderThan")
+                .and_then(|v| v.as_str()),
+            Some("60d")
+        );
+        assert!(updater.get("garbageCollectOlderThen").is_none());
     }
 }

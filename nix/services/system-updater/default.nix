@@ -34,7 +34,7 @@
     config = lib.mkIf cfg.enabled {
       # Keep build outputs of live derivations so build-time deps (e.g. crane/cargo
       # crate builds) are not recompiled after each scheduled GC.
-      nix.settings.keep-outputs = lib.mkIf (cfg.garbageCollectOlderThen != null) true;
+      nix.settings.keep-outputs = lib.mkIf (cfg.garbageCollectOlderThan != null) true;
 
       system.activationScripts.neo-system-updater-history = lib.neo.mkEnsureDirs config [
         {
@@ -134,8 +134,8 @@
             echo "Started run $run_id; last.json -> $run_id.json (in_progress) activation_mode=$activation_mode"
             trap 'finalize abort' EXIT INT TERM HUP
           ''
-          + lib.optionalString (cfg.garbageCollectOlderThen != null) ''
-            /run/wrappers/bin/sudo nix-collect-garbage --delete-older-than ${cfg.garbageCollectOlderThen} || true
+          + lib.optionalString (cfg.garbageCollectOlderThan != null) ''
+            /run/wrappers/bin/sudo nix-collect-garbage --delete-older-than ${cfg.garbageCollectOlderThan} || true
           ''
           + ''
             set +e
