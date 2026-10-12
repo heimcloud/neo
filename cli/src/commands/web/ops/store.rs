@@ -4,16 +4,141 @@
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::locks::{Holder, LockManager};
 pub use crate::utils::ops::{append_log, log_path, state_path};
 use crate::utils::ops::{operations_dir, write_op_state, OperationKind};
+
+/// How long a web-triggered op may stay in phase `triggered` before the child
+/// process has taken its lock (systemd-run handoff + short lock wait).
+const TRIGGER_GRACE_SECS: u64 = 120;
 
 /// Write op state (no branch / start time / extra fields).
 pub fn write_state(id: &str, status: &str, phase: &str, err: Option<&str>) {
     write_op_state(id, status, phase, err, None, None, None);
 }
 
+/// True when a live lock holder still owns this op (or the web trigger grace applies).
+fn op_still_running(
+    id: &str,
+    kind: OperationKind,
+    phase: &str,
+    mtime_secs: u64,
+    now_secs: u64,
+    holders: &[Holder],
+) -> bool {
+    if holders.iter().any(|h| h.op_id.as_deref() == Some(id)) {
+        return true;
+    }
+    let prefix = kind.prefix();
+    // CLI activate/update without a suffix leaves the holder without `op_id`.
+    // Trust kind only when the holder does not claim a different op.
+    if holders
+        .iter()
+        .any(|h| h.kind == prefix && h.op_id.as_deref().is_none_or(|oid| oid == id))
+    {
+        return true;
+    }
+    // Web UI writes `triggered` before systemd-run's child acquires the lock.
+    if phase == "triggered" && now_secs.saturating_sub(mtime_secs) < TRIGGER_GRACE_SECS {
+        return true;
+    }
+    false
+}
+
+/// Mark an in-progress op finished as failed when its process is gone.
+fn mark_op_aborted(id: &str, last_phase: &str) {
+    let existing = fs::read_to_string(state_path(id))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+    let started_at = existing
+        .as_ref()
+        .and_then(|v| v.get("started_at").and_then(|x| x.as_str()));
+    let branch = existing
+        .as_ref()
+        .and_then(|v| v.get("branch").and_then(|x| x.as_str()));
+    let mut extra = serde_json::Map::new();
+    if let Some(v) = existing.as_ref() {
+        for key in ["generation", "mode"] {
+            if let Some(val) = v.get(key) {
+                extra.insert(key.to_string(), val.clone());
+            }
+        }
+    }
+    let err = format!("no longer running (last phase: {last_phase}); aborted or crashed");
+    write_op_state(
+        id,
+        "failed",
+        "aborted",
+        Some(&err),
+        branch,
+        started_at,
+        if extra.is_empty() {
+            None
+        } else {
+            Some(serde_json::Value::Object(extra))
+        },
+    );
+    append_log(
+        &log_path(id),
+        &format!("operation {id} marked aborted (process no longer running)"),
+    );
+}
+
+/// Finish in-progress ops whose lock holder is gone (Ctrl+C / crash / killed unit).
+/// Safe to call often: only rewrites state when something is actually stale.
+pub fn reap_stale_ops() {
+    let dir = operations_dir();
+    if !dir.exists() {
+        return;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let holders = LockManager::system().holders();
+    let Ok(rd) = fs::read_dir(&dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let id = name.trim_end_matches(".json");
+        let Some(kind) = OperationKind::from_id(id) else {
+            continue;
+        };
+        let Ok(meta) = e.metadata() else {
+            continue;
+        };
+        let mtime = meta
+            .modified()
+            .ok()
+            .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
+            .unwrap_or(0);
+        let Ok(s) = fs::read_to_string(e.path()) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) else {
+            continue;
+        };
+        if v.get("status").and_then(|x| x.as_str()) != Some("in_progress") {
+            continue;
+        }
+        let phase = v.get("phase").and_then(|x| x.as_str()).unwrap_or("");
+        if op_still_running(id, kind, phase, mtime, now, &holders) {
+            continue;
+        }
+        mark_op_aborted(id, phase);
+    }
+}
+
 /// Most recent in-progress op of `kind` (within the last hour).
 pub fn find_recent_in_progress(kind: OperationKind) -> Option<String> {
+    // Drop aborted CLI/web jobs before we advertise them as still running.
+    reap_stale_ops();
+
     let prefix = format!("{}_", kind.prefix());
     let dir = operations_dir();
     if !dir.exists() {
@@ -62,6 +187,8 @@ pub fn find_recent_in_progress(kind: OperationKind) -> Option<String> {
 /// Called from the action-bar watcher and once at op trigger start — not from
 /// per-poll monitor/status/log fragment builders (those are on the hot path).
 pub fn gc_old_ops() {
+    reap_stale_ops();
+
     let dir = operations_dir();
     if !dir.exists() {
         return;
@@ -100,5 +227,98 @@ pub fn gc_old_ops() {
         for old in files.iter().take(files.len() - 10) {
             let _ = fs::remove_file(old.path());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::locks::{HeldScope, LockMode};
+
+    fn holder(kind: &str, op_id: Option<&str>) -> Holder {
+        Holder {
+            id: "1-0".into(),
+            scopes: vec![HeldScope {
+                scope: "system".into(),
+                mode: LockMode::Exclusive,
+            }],
+            kind: kind.into(),
+            label: kind.into(),
+            op_id: op_id.map(|s| s.into()),
+            pid: 1,
+            started_at: 0,
+            guarded_units: vec![],
+        }
+    }
+
+    #[test]
+    fn live_when_holder_claims_op_id() {
+        let h = vec![holder("activation", Some("activation_1"))];
+        assert!(op_still_running(
+            "activation_1",
+            OperationKind::Activation,
+            "pre-rebuild",
+            100,
+            500,
+            &h
+        ));
+        assert!(!op_still_running(
+            "activation_2",
+            OperationKind::Activation,
+            "pre-rebuild",
+            100,
+            500,
+            &h
+        ));
+    }
+
+    #[test]
+    fn live_when_cli_holder_has_kind_only() {
+        let h = vec![holder("update", None)];
+        assert!(op_still_running(
+            "update_1",
+            OperationKind::Update,
+            "flake update",
+            100,
+            500,
+            &h
+        ));
+        assert!(!op_still_running(
+            "activation_1",
+            OperationKind::Activation,
+            "starting",
+            100,
+            500,
+            &h
+        ));
+    }
+
+    #[test]
+    fn triggered_grace_without_holder() {
+        assert!(op_still_running(
+            "activation_1",
+            OperationKind::Activation,
+            "triggered",
+            100,
+            150,
+            &[]
+        ));
+        assert!(!op_still_running(
+            "activation_1",
+            OperationKind::Activation,
+            "triggered",
+            100,
+            100 + TRIGGER_GRACE_SECS + 1,
+            &[]
+        ));
+        // Past grace and not triggered → dead.
+        assert!(!op_still_running(
+            "activation_1",
+            OperationKind::Activation,
+            "starting",
+            100,
+            150,
+            &[]
+        ));
     }
 }
