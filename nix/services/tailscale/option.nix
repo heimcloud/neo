@@ -6,7 +6,18 @@
     ...
   }:
     with lib;
-    with {inherit (lib.neo) mkOption mkEnableOption;}; {
+    with {inherit (lib.neo) mkOption mkEnableOption;}; let
+      # splitDns units are only defined under mkIf cfg.splitDns. Listing them
+      # unconditionally makes service-targets apply PartOf= and synthesize
+      # empty stubs (LoadState=bad-setting) when splitDns is off (default).
+      # Same pattern as ical-sync: only declare units that actually exist.
+      tailscaleUnits =
+        ["tailscale-up" "tailscaled"]
+        ++ optionals (config.neo.services.tailscale.splitDns or false) [
+          "tailscale-split-dns"
+          "dnsmasq"
+        ];
+    in {
       options.neo.services.tailscale = mkOption {
         type = types.submodule {
           options =
@@ -83,12 +94,7 @@
                 rank = 100;
               };
             }
-            // lib.neo.mkSystemdUnits [
-              "tailscale-up"
-              "tailscaled"
-              "tailscale-split-dns"
-              "dnsmasq"
-            ]
+            // lib.neo.mkSystemdUnits tailscaleUnits
             // lib.neo.mkServiceMeta {
               category = "Network";
               icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/tailscale.svg";
