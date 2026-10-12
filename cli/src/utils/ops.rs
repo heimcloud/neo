@@ -41,6 +41,8 @@ pub fn write_op_state(
         "status": status,
         "phase": phase,
         "log_path": log_path(id).to_string_lossy(),
+        // So the web UI can tell a live worker from an aborted CLI/Ctrl-C leftover.
+        "pid": std::process::id(),
     });
     if let Some(ts) = started_at {
         s["started_at"] = serde_json::json!(ts);
@@ -62,6 +64,20 @@ pub fn write_op_state(
         state_path(id),
         serde_json::to_string_pretty(&s).unwrap_or_else(|_| "{}".to_string()),
     );
+}
+
+/// True when `pid` still refers to a process (exists or is not killable by us).
+pub fn process_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    // SAFETY: kill(pid, 0) is a documented existence probe; no signal is sent.
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    // EPERM: process exists but we lack permission — still alive.
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 pub fn append_log(path: &Path, line: &str) {
