@@ -22,6 +22,24 @@
                 description = "systemd OnCalendar schedule for auto-update (e.g. daily, *-*-* 04:00:00)";
                 rank = 10;
               };
+              activationMode = mkOption {
+                type = types.enum ["switch" "boot"];
+                default = "switch";
+                description = ''
+                  How scheduled activate applies the new generation.
+                  switch (default): live nixos-rebuild switch — running system becomes the new generation immediately.
+                  boot: nixos-rebuild boot only — sets the boot default; the running system stays on the old generation until reboot (avoids unattended live restarts of dhcpcd/journald and similar freezes on edge boxes). Interactive neo activate and the web Activate button stay on switch unless you pass --mode boot / NEO_ACTIVATION_MODE=boot.
+                '';
+                rank = 15;
+                ui = lib.neo.ui.mkUi {
+                  label = "Activation mode";
+                  summary = true;
+                  choiceLabels = {
+                    switch = "Live switch";
+                    boot = "Boot only (reboot later)";
+                  };
+                };
+              };
               garbageCollectOlderThen = mkOption {
                 type = types.nullOr types.str;
                 default = "30d";
@@ -38,6 +56,7 @@
               description = ''
                 Periodically runs neo update + activate so system packages and Neo modules stay current.
                 When enabled, a systemd timer runs scheduled upgrades (with optional nix garbage collection).
+                activationMode=boot builds and sets the next boot default without a live switch (safer on boxes where unattended switch freezes networking).
                 The configuration repository is created by neo-bootstrap on the neo web service, which stays enabled when this timer is off.
                 CLI path and neo input settings live under neo-cli. Updates use the server profile (configPath and neoInput). This option only controls whether automatic system updates run.
               '';

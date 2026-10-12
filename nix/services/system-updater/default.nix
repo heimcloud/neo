@@ -11,6 +11,7 @@
     updaterPaths = lib.neo.mkUpdaterPaths config.neo.core.volumes.appdata;
     systemHistoryDir = cfg.appdata;
     neo = self.packages.${pkgs.stdenv.hostPlatform.system}.neo;
+    activationMode = cfg.activationMode;
     path = [
       neo
       pkgs.git
@@ -27,6 +28,7 @@
       # Scheduled run: wait (up to 1h) for a running activation / restore / … to
       # finish instead of failing on the operation lock like an interactive call.
       NEO_LOCK_WAIT = "3600";
+      NEO_ACTIVATION_MODE = activationMode;
     };
   in {
     config = lib.mkIf cfg.enabled {
@@ -75,9 +77,12 @@
             exec > >(tee -a "$log_file") 2>&1
             before=$(readlink /nix/var/nix/profiles/system || echo none)
             after=none
+            running=none
             rc=""
             changed=false
             failed=false
+            reboot_pending=false
+            activation_mode=${lib.escapeShellArg activationMode}
             hist_done=0
 
             write_hist() {
@@ -88,13 +93,16 @@
                 --arg started "$started_at" \
                 --arg before "$before" \
                 --arg after "$after" \
+                --arg running "$running" \
+                --arg activation_mode "$activation_mode" \
                 --argjson in_progress "$in_progress" \
                 --argjson changed "$changed" \
                 --argjson failed "$failed" \
+                --argjson reboot_pending "$reboot_pending" \
                 --arg rc "$rc" \
                 --arg finished "$finished" \
                 --arg log "$run_id.log" \
-                '{kind:"system",run_id:$run_id,started_at:$started,in_progress:$in_progress,generation_before:$before,generation_after:$after,changed:$changed,failed:$failed,exit_code:(if $rc == "" then null else ($rc|tonumber) end),finished_at:(if $finished == "" then null else $finished end),log:$log}' \
+                '{kind:"system",run_id:$run_id,started_at:$started,in_progress:$in_progress,generation_before:$before,generation_after:$after,running_system:$running,activation_mode:$activation_mode,changed:$changed,failed:$failed,reboot_pending:$reboot_pending,exit_code:(if $rc == "" then null else ($rc|tonumber) end),finished_at:(if $finished == "" then null else $finished end),log:$log}' \
                 > "$hist"
             }
 
@@ -103,7 +111,14 @@
               hist_done=1
               trap - EXIT INT TERM HUP
               after=$(readlink /nix/var/nix/profiles/system || echo none)
+              running=$(readlink /run/current-system || echo none)
               if [ "$before" != "$after" ]; then changed=true; fi
+              # Boot mode (or any path where profile advanced but running did not) needs a reboot.
+              if [ "$after" != "none" ] && [ "$after" != "$running" ]; then
+                reboot_pending=true
+              else
+                reboot_pending=false
+              fi
               if [ "''${1:-}" = abort ]; then
                 failed=true
                 if [ -z "$rc" ]; then rc=1; fi
@@ -111,12 +126,12 @@
                 failed=true
               fi
               write_hist false "$(date -Iseconds)"
-              echo "Wrote $hist (changed=$changed failed=$failed exit=$rc); last.json -> $run_id.json"
+              echo "Wrote $hist (changed=$changed failed=$failed reboot_pending=$reboot_pending mode=$activation_mode exit=$rc); last.json -> $run_id.json"
             }
 
             write_hist true ""
             ln -sfn "$run_id.json" ${systemHistoryDir}/last.json
-            echo "Started run $run_id; last.json -> $run_id.json (in_progress)"
+            echo "Started run $run_id; last.json -> $run_id.json (in_progress) activation_mode=$activation_mode"
             trap 'finalize abort' EXIT INT TERM HUP
           ''
           + lib.optionalString (cfg.garbageCollectOlderThen != null) ''
@@ -124,7 +139,7 @@
           ''
           + ''
             set +e
-            ${neo}/bin/neo --profile server update && ${neo}/bin/neo --profile server activate
+            ${neo}/bin/neo --profile server update && ${neo}/bin/neo --profile server activate --mode "$activation_mode"
             rc=$?
             set -e
             finalize ok
@@ -148,7 +163,7 @@
       security.sudo.extraRules = lib.neo.mkSudoExtraRules {
         users = ["homeserver"];
         commands = [
-          # neo activate → sudo nixos-rebuild switch
+          # neo activate → sudo nixos-rebuild switch|boot
           {
             package = pkgs.nixos-rebuild;
             name = "nixos-rebuild";

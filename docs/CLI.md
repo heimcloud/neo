@@ -39,7 +39,7 @@ SSH to a finished host as **`homeserver@…`** for `neo` (or **`admin@…`** if 
 |---------|------|
 | `neo init` | Create config from template (or clone); hardware + settings bootstrap |
 | `neo web` | Start the web UI (also how laptop-side Path B config editing works) |
-| `neo activate` | Build and switch **this** machine to the current config |
+| `neo activate` | Build and apply **this** machine’s config (`--mode switch` default live switch; `--mode boot` / `NEO_ACTIVATION_MODE=boot` sets boot default only) |
 | `neo build` | Build without switching |
 | `neo update` | Refresh inputs; usually follow with activate |
 | `neo update-inputs` | Lower-level input refresh |
@@ -59,6 +59,9 @@ SSH to a finished host as **`homeserver@…`** for `neo` (or **`admin@…`** if 
 neo web                 # UI
 neo update && neo activate
 neo --dry-run activate
+neo activate --mode boot   # build + boot default only; reboot later
 ```
+
+Scheduled system-updater uses `services.system-updater.activationMode` (`switch` or `boot`). Interactive `neo activate` and web Activate stay on live switch unless you pass `--mode` / `NEO_ACTIVATION_MODE`.
 
 Developers building Neo itself: [AGENTS.md](../AGENTS.md).

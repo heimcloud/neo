@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use std::process::{Command, Stdio};
 
 use crate::utils::{
@@ -6,27 +7,60 @@ use crate::utils::{
     resolve_suffix, run_nix, run_write_flake, OperationKind, OperationLog,
 };
 
+/// How `neo activate` applies the new system generation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum ActivationMode {
+    /// Live `nixos-rebuild switch` (default; interactive UI/CLI).
+    #[default]
+    Switch,
+    /// `nixos-rebuild boot`: set boot default only; running system unchanged until reboot.
+    Boot,
+}
+
+impl ActivationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActivationMode::Switch => "switch",
+            ActivationMode::Boot => "boot",
+        }
+    }
+}
+
 pub fn activate(
     config_path: &str,
     dry_run: bool,
     nix_cmd: &str,
     sudo_cmd: &str,
     activation_suffix: Option<&str>,
+    mode: ActivationMode,
 ) -> Result<()> {
+    let mode_s = mode.as_str();
     if dry_run {
         println!(
-            "DRY-RUN: activate (write-flake + toplevel build + git branch dance + pre-clean + nixos-rebuild; exit 0 or 4 treated as success (keep branch, 'Activated using...'); other non-zero keeps branch but errors)"
+            "DRY-RUN: activate mode={mode_s} (write-flake + toplevel build + git branch dance + pre-clean + nixos-rebuild {mode_s}; exit 0 or 4 treated as success (keep branch, 'Activated using...'); other non-zero keeps branch but errors)"
         );
         return Ok(());
     }
 
     let suffix = resolve_suffix(activation_suffix, "NEO_ACTIVATION_SUFFIX");
     let op = OperationLog::new(OperationKind::Activation, &suffix);
-    op.write_state("in_progress", "starting", None, None);
+    op.write_state_extra(
+        "in_progress",
+        "starting",
+        None,
+        None,
+        Some(serde_json::json!({ "activation_mode": mode_s })),
+    );
     let _tee = op.capture_stdio();
 
     op.step("write-flake", || run_write_flake(config_path, nix_cmd))?;
-    op.write_state("in_progress", "write-flake-done", None, None);
+    op.write_state_extra(
+        "in_progress",
+        "write-flake-done",
+        None,
+        None,
+        Some(serde_json::json!({ "activation_mode": mode_s })),
+    );
 
     op.step("toplevel-build", || {
         run_nix(
@@ -38,7 +72,13 @@ pub fn activate(
             ],
         )
     })?;
-    op.write_state("in_progress", "toplevel-built", None, None);
+    op.write_state_extra(
+        "in_progress",
+        "toplevel-built",
+        None,
+        None,
+        Some(serde_json::json!({ "activation_mode": mode_s })),
+    );
 
     let activation_branch = format!("activation_{}", suffix);
     let build_branch = format!("build_{}", suffix);
@@ -67,14 +107,21 @@ pub fn activate(
     if let Err(e) = git_cmd(config_path, &["switch", "-C", &activation_branch]) {
         drop_build_branch();
         let _ = git_cmd(config_path, &["switch", &orig_branch]);
-        op.write_state("failed", "branch-failed", Some(&e.to_string()), None);
+        op.write_state_extra(
+            "failed",
+            "branch-failed",
+            Some(&e.to_string()),
+            None,
+            Some(serde_json::json!({ "activation_mode": mode_s })),
+        );
         return Err(e);
     }
-    op.write_state(
+    op.write_state_extra(
         "in_progress",
         "branches-created",
         None,
         Some(&activation_branch),
+        Some(serde_json::json!({ "activation_mode": mode_s })),
     );
 
     if has_changes {
@@ -92,7 +139,13 @@ pub fn activate(
         })?;
     }
 
-    op.write_state("in_progress", "pre-rebuild", None, Some(&activation_branch));
+    op.write_state_extra(
+        "in_progress",
+        "pre-rebuild",
+        None,
+        Some(&activation_branch),
+        Some(serde_json::json!({ "activation_mode": mode_s })),
+    );
     // Best-effort clear of a leftover nixos-rebuild transient unit. The unit is
     // only loaded while a switch is in flight (or leftover failed); when it is
     // not loaded, systemctl prints "Unit … not loaded" on stderr. Status is
@@ -128,7 +181,7 @@ pub fn activate(
     let mut rebuild = Command::new(sudo_cmd);
     rebuild
         .current_dir(config_path)
-        .args(["nixos-rebuild", "switch", "--flake", ".#neo"]);
+        .args(["nixos-rebuild", mode_s, "--flake", ".#neo"]);
     let display = format_command(&rebuild);
     println!("→ {display}");
     let status = rebuild
@@ -138,7 +191,7 @@ pub fn activate(
         .with_context(|| format!("failed to spawn: {display}"))?;
     let code = status.code().unwrap_or(-1);
 
-    // Exit 4: the switch succeeded with warnings (common for user session reloads).
+    // Exit 4: the rebuild succeeded with warnings (common for user session reloads on switch).
     let warnings = code == 4;
     drop_build_branch();
     if !status.success() && !warnings {
@@ -146,35 +199,71 @@ pub fn activate(
             "nixos-rebuild failed (non-zero exit {}). Keeping {} branch+checkout (check 'systemctl --failed' and logs).",
             code, activation_branch
         );
-        op.write_state(
+        op.write_state_extra(
             "failed",
             "rebuild-failed",
             Some(&format!("exit code {}", code)),
             None,
+            Some(serde_json::json!({ "activation_mode": mode_s })),
         );
         anyhow::bail!("Command failed: {display} (exit {code})");
     }
     if warnings {
-        println!(
-            "warning: nixos-rebuild exited 4 (success with warnings). The switch succeeded and the new generation is active. This is common for user session reloads (dbus-broker), non-critical service restarts, etc. Treating as success for activation tracking."
-        );
+        match mode {
+            ActivationMode::Switch => {
+                println!(
+                    "warning: nixos-rebuild exited 4 (success with warnings). The switch succeeded and the new generation is active. This is common for user session reloads (dbus-broker), non-critical service restarts, etc. Treating as success for activation tracking."
+                );
+            }
+            ActivationMode::Boot => {
+                println!(
+                    "warning: nixos-rebuild exited 4 (success with warnings). Boot default was set; reboot to run the new generation. Treating as success for activation tracking."
+                );
+            }
+        }
     }
     let phase = if warnings {
         "completed-with-warnings"
     } else {
         "completed"
     };
-    op.write_state("success", phase, None, Some(&activation_branch));
-    record_gen_after_activate(config_path, &activation_branch, has_changes);
-    println!(
-        "Activated using branch {}{}",
-        activation_branch,
-        if warnings {
-            " (exit code 4 / warnings)"
-        } else {
-            ""
-        }
+    // reboot_pending: boot mode leaves the profile pointer ahead of /run/current-system.
+    let reboot_pending = mode == ActivationMode::Boot;
+    op.write_state_extra(
+        "success",
+        phase,
+        None,
+        Some(&activation_branch),
+        Some(serde_json::json!({
+            "activation_mode": mode_s,
+            "reboot_pending": reboot_pending,
+        })),
     );
+    record_gen_after_activate(config_path, &activation_branch, has_changes);
+    match mode {
+        ActivationMode::Switch => {
+            println!(
+                "Activated using branch {}{}",
+                activation_branch,
+                if warnings {
+                    " (exit code 4 / warnings)"
+                } else {
+                    ""
+                }
+            );
+        }
+        ActivationMode::Boot => {
+            println!(
+                "Boot default set using branch {}{}; reboot to run the new generation",
+                activation_branch,
+                if warnings {
+                    " (exit code 4 / warnings)"
+                } else {
+                    ""
+                },
+            );
+        }
+    }
     Ok(())
 }
 

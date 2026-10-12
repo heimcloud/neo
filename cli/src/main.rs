@@ -8,7 +8,7 @@ pub mod commands;
 pub mod utils;
 
 use crate::commands::{
-    activate::activate,
+    activate::{activate, ActivationMode},
     build::build,
     docker_update::docker_update,
     edit::edit,
@@ -92,6 +92,14 @@ enum Commands {
     Activate {
         #[arg(long, env = "NEO_ACTIVATION_SUFFIX")]
         activation_suffix: Option<String>,
+        /// How to apply the new generation: live switch (default) or boot-only (next reboot).
+        #[arg(
+            long,
+            env = "NEO_ACTIVATION_MODE",
+            value_enum,
+            default_value_t = ActivationMode::Switch
+        )]
+        mode: ActivationMode,
     },
     Update {
         #[arg(long, env = "NEO_UPDATE_SUFFIX")]
@@ -160,7 +168,7 @@ fn run(cli: Cli) -> Result<()> {
                 .arg("-u")
                 .arg("homeserver")
                 .arg(
-                    "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_UPDATE_SUFFIX,NEO_GENSWITCH_SUFFIX,NEO_LOCK_WAIT,NEO_SECTION,NEO_PROFILE,TEMPLATE_DIR,STATIC_DIR,DEFAULT_SETTINGS_PATH",
+                    "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_ACTIVATION_MODE,NEO_UPDATE_SUFFIX,NEO_GENSWITCH_SUFFIX,NEO_LOCK_WAIT,NEO_SECTION,NEO_PROFILE,TEMPLATE_DIR,STATIC_DIR,DEFAULT_SETTINGS_PATH",
                 )
                 .args(env::args()),
         )?;
@@ -230,12 +238,16 @@ fn run(cli: Cli) -> Result<()> {
         ),
         Commands::Migrate => migrate(&config_path, &settings_path, dry_run),
         Commands::Build => build(&config_path, &doc, dry_run, nix_cmd),
-        Commands::Activate { activation_suffix } => activate(
+        Commands::Activate {
+            activation_suffix,
+            mode,
+        } => activate(
             &config_path,
             dry_run,
             nix_cmd,
             sudo_cmd,
             activation_suffix.as_deref(),
+            mode,
         ),
         Commands::Nuke => nuke(&config_path, dry_run),
         Commands::Web => web(web_settings_path, nix_cmd, &config_path),
@@ -270,7 +282,10 @@ fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<Operatio
         Some(t)
     };
     match command {
-        Commands::Activate { activation_suffix } => with_op(
+        Commands::Activate {
+            activation_suffix,
+            mode: _,
+        } => with_op(
             system("activation", "Activation")?,
             web_op(OperationKind::Activation, activation_suffix.clone()),
         ),
