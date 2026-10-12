@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use rocket::http::ContentType;
 use rocket::{get, State};
-use rocket_dyn_templates::Template;
+use rocket_dyn_templates::{Metadata, Template};
 
 use crate::commands::web::routes::branches::branches_template;
 use crate::commands::web::schema_cache::load_pane;
 use crate::commands::web::types::{
-    AppConfig, ConfigurationPageContext, IndexContext, NavigatorContext,
+    AppConfig, ConfigurationPageContext, IndexContext, NavigatorContext, OptionPaneContext,
 };
 use crate::commands::web::util::Htmx;
 
@@ -49,6 +49,7 @@ async fn configuration_shell(
     initial_content_url: &str,
     initial_tab: &str,
     initial_detail: Option<String>,
+    initial_content_html: Option<String>,
 ) -> Template {
     let ctx = {
         let mut ev = config.evaluator.lock().await;
@@ -60,13 +61,23 @@ async fn configuration_shell(
             initial_content_url: initial_content_url.to_string(),
             initial_tab: initial_tab.to_string(),
             initial_detail,
+            initial_content_html,
         }
     };
     Template::render("configuration", ctx)
 }
 
+async fn pane_context(config: &State<Arc<AppConfig>>, is_core: bool, name: &str) -> OptionPaneContext {
+    load_pane(config, is_core, name).await
+}
+
 async fn pane_template(config: &State<Arc<AppConfig>>, is_core: bool, name: &str) -> Template {
-    Template::render("option_pane", load_pane(config, is_core, name).await)
+    Template::render("option_pane", pane_context(config, is_core, name).await)
+}
+
+/// Render the option/core pane to HTML for embedding in a full-page shell (deep links).
+fn render_pane_html(meta: &Metadata<'_>, pane: &OptionPaneContext) -> Option<String> {
+    meta.render("option_pane", pane).map(|(_, html)| html)
 }
 
 async fn services_grid_template(config: &State<Arc<AppConfig>>) -> Template {
@@ -86,7 +97,7 @@ async fn configuration_services_body(config: &State<Arc<AppConfig>>, htmx: Htmx)
     if htmx.is_htmx() {
         services_grid_template(config).await
     } else {
-        configuration_shell(config, "/configuration", "services", None).await
+        configuration_shell(config, "/configuration", "services", None, None).await
     }
 }
 
@@ -109,7 +120,7 @@ pub async fn configuration_settings(config: &State<Arc<AppConfig>>, htmx: Htmx) 
     if htmx.is_htmx() {
         core_grid_template()
     } else {
-        configuration_shell(config, "/configuration/settings", "settings", None).await
+        configuration_shell(config, "/configuration/settings", "settings", None, None).await
     }
 }
 
@@ -119,45 +130,53 @@ pub async fn configuration_versioning(config: &State<Arc<AppConfig>>, htmx: Htmx
     if htmx.is_htmx() {
         branches_template()
     } else {
-        configuration_shell(config, "/configuration/versioning", "versioning", None).await
+        configuration_shell(config, "/configuration/versioning", "versioning", None, None).await
     }
 }
 
-/// Service option pane — full shell or partial.
+/// Service option pane — full shell (SSR pane) or HTMX partial.
 #[get("/configuration/option/<service>")]
 pub async fn configuration_option(
     config: &State<Arc<AppConfig>>,
     service: &str,
     htmx: Htmx,
+    meta: Metadata<'_>,
 ) -> Template {
     if htmx.is_htmx() {
         pane_template(config, false, service).await
     } else {
+        let pane = pane_context(config, false, service).await;
+        let html = render_pane_html(&meta, &pane);
         configuration_shell(
             config,
             &format!("/configuration/option/{service}"),
             "services",
             Some(service.to_string()),
+            html,
         )
         .await
     }
 }
 
-/// Core section option pane — full shell or partial.
+/// Core section option pane — full shell (SSR pane) or HTMX partial.
 #[get("/configuration/core/<section>")]
 pub async fn configuration_core(
     config: &State<Arc<AppConfig>>,
     section: &str,
     htmx: Htmx,
+    meta: Metadata<'_>,
 ) -> Template {
     if htmx.is_htmx() {
         pane_template(config, true, section).await
     } else {
+        let pane = pane_context(config, true, section).await;
+        let html = render_pane_html(&meta, &pane);
         configuration_shell(
             config,
             &format!("/configuration/core/{section}"),
             "settings",
             Some(section.to_string()),
+            html,
         )
         .await
     }

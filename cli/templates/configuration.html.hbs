@@ -173,18 +173,26 @@
               class="hidden"
               aria-hidden="true"
               hx-push-url="true"></span>
-        {{!-- hx-history-elt: history snapshots restore into this pane, not the whole body. --}}
+        {{!-- hx-history-elt: history snapshots restore into this pane, not the whole body.
+             Deep-linked option/core pages SSR the pane into this div so labels/fields are in
+             the first HTML response (no HTMX round-trip). Grids still lazy-load on hx-trigger. --}}
         <div id="config-content"
              hx-history-elt
+             {{#unless initial_content_html}}
              hx-get="{{#if initial_content_url}}{{initial_content_url}}{{else}}/configuration{{/if}}"
              hx-trigger="load"
              hx-swap="innerHTML"
              hx-push-url="false"
+             {{/unless}}
              class="min-h-[100px]">
+          {{#if initial_content_html}}
+            {{{initial_content_html}}}
+          {{else}}
           <div class="flex flex-col items-center justify-center gap-2 py-16 text-sm text-base-content/50">
             <span class="loading loading-spinner loading-md"></span>
             Loading…
           </div>
+          {{/if}}
         </div>
       </div>
     </div>
