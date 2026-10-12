@@ -47,7 +47,8 @@ pub fn migrate(config_path: &str, source_settings: &Path, dry_run: bool) -> Resu
 }
 
 /// Apply pending settings migrations in place. Returns true if the document changed.
-pub(crate) fn apply_migrations(doc: &mut DocumentMut) -> bool {
+/// Only invoked from `neo migrate` (e.g. during `neo update`), not on paste/upload/save.
+fn apply_migrations(doc: &mut DocumentMut) -> bool {
     let mut applied = get_applied(doc);
     let orig = applied.len();
     // Path renames first, then migrations that need more than renames.

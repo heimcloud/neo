@@ -5,10 +5,9 @@ use std::path::Path;
 
 use toml_edit::DocumentMut;
 
-use crate::commands::migrate::apply_migrations;
 use crate::utils::sort_document_alphabetically;
 
-/// Replace `settings.toml` with uploaded TOML. Parses, migrates, and sorts; does not write on error.
+/// Replace `settings.toml` with uploaded TOML. Parses and sorts; does not write on error.
 pub fn import_settings_toml(path: &Path, raw: &str) -> Result<(), String> {
     let raw = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     if raw.trim().is_empty() {
@@ -20,7 +19,6 @@ pub fn import_settings_toml(path: &Path, raw: &str) -> Result<(), String> {
     if doc.as_table().is_empty() {
         return Err("Uploaded settings.toml has no keys".into());
     }
-    apply_migrations(&mut doc);
     sort_document_alphabetically(&mut doc);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create directory: {e}"))?;
