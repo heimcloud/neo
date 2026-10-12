@@ -12,9 +12,14 @@ use anyhow::Result;
 use super::command::get_timestamp;
 
 pub const OPERATIONS_DIR: &str = "/tmp/neo-activations";
+/// Override for the ops dir (tests). Production leaves this unset.
+pub const OPERATIONS_DIR_ENV: &str = "NEO_OPERATIONS_DIR";
 
 pub fn operations_dir() -> PathBuf {
-    PathBuf::from(OPERATIONS_DIR)
+    match std::env::var(OPERATIONS_DIR_ENV) {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => PathBuf::from(OPERATIONS_DIR),
+    }
 }
 
 pub fn state_path(id: &str) -> PathBuf {
@@ -94,6 +99,17 @@ impl OperationKind {
             Self::Activation => "activation",
             Self::Update => "update",
             Self::Generation => "genswitch",
+            Self::Repair => "repair",
+        }
+    }
+
+    /// Lock-holder `kind` string written by CLI/web (`OpInfo.kind`).
+    /// Differs from [`Self::prefix`] for generation (`generation` vs `genswitch`).
+    pub fn lock_kind(self) -> &'static str {
+        match self {
+            Self::Activation => "activation",
+            Self::Update => "update",
+            Self::Generation => "generation",
             Self::Repair => "repair",
         }
     }
