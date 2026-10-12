@@ -45,16 +45,22 @@ fn op_still_running(id: &str, v: &serde_json::Value, holders: &[Holder], now: u6
         return now.saturating_sub(started) <= TRIGGER_GRACE_SECS;
     }
 
-    // CLI / worker: trust the pid recorded on each state write.
-    if let Some(pid) = v.get("pid").and_then(|x| x.as_u64()) {
-        return process_alive(pid as u32);
+    // Recorded worker pid: must still be alive AND still hold a lock.
+    // Pid alone is not enough — repair / other in-process jobs write neo-web's
+    // pid, which stays alive after the task and lock are gone.
+    if let Some(pid) = v.get("pid").and_then(|x| x.as_u64()).map(|p| p as u32) {
+        if !process_alive(pid) {
+            return false;
+        }
+        return holders.iter().any(|h| h.pid == pid);
     }
 
-    // Legacy state without pid: keep only while a live lock of the same kind exists
-    // (plain CLI activate/update take the system lock without an op_id).
+    // Legacy state without pid: plain CLI activate/update take the system lock
+    // without an op_id. Do not treat a different op's lock (with its own op_id)
+    // as proof this leftover is still running.
     if let Some(kind) = OperationKind::from_id(id) {
         let want = holder_kind(kind);
-        if holders.iter().any(|h| h.kind == want) {
+        if holders.iter().any(|h| h.kind == want && h.op_id.is_none()) {
             return true;
         }
     }
@@ -310,22 +316,43 @@ mod tests {
     }
 
     #[test]
-    fn legacy_without_pid_needs_matching_holder() {
+    fn legacy_without_pid_needs_cli_style_holder() {
         let id = "update_1";
         let v = json!({"status": "in_progress", "phase": "flake update"});
         assert!(!op_still_running(id, &v, &[], 1_000));
+        // Another update with its own op_id must not keep this leftover "running".
+        let other = vec![holder("update", Some("update_other"), 9)];
+        assert!(!op_still_running(id, &v, &other, 1_000));
         let holders = vec![holder("update", None, 9)];
         assert!(op_still_running(id, &v, &holders, 1_000));
     }
 
     #[test]
-    fn self_pid_counts_as_alive() {
+    fn live_pid_requires_matching_lock_holder() {
+        let id = "activation_1";
+        let pid = std::process::id();
+        let v = json!({
+            "status": "in_progress",
+            "phase": "toplevel-build",
+            "pid": pid,
+        });
+        // Alive pid but no lock (Ctrl-C after flock dropped, or in-process task ended).
+        assert!(!op_still_running(id, &v, &[], 1_000));
+        let holders = vec![holder("activation", None, pid)];
+        assert!(op_still_running(id, &v, &holders, 1_000));
+    }
+
+    #[test]
+    fn web_pid_alone_does_not_keep_repair_alive() {
+        // Repair runs inside neo-web: pid stays alive after the task drops the lock.
         let id = "repair_1";
         let v = json!({
             "status": "in_progress",
             "phase": "nix-store-verify-repair",
             "pid": std::process::id(),
         });
-        assert!(op_still_running(id, &v, &[], 1_000));
+        assert!(!op_still_running(id, &v, &[], 1_000));
+        let holders = vec![holder("repair", Some(id), std::process::id())];
+        assert!(op_still_running(id, &v, &holders, 1_000));
     }
 }

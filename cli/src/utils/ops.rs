@@ -6,6 +6,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
@@ -36,6 +37,10 @@ pub fn write_op_state(
     extra: Option<serde_json::Value>,
 ) {
     let _ = fs::create_dir_all(operations_dir());
+    let started_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let mut s = serde_json::json!({
         "id": id,
         "status": status,
@@ -43,6 +48,8 @@ pub fn write_op_state(
         "log_path": log_path(id).to_string_lossy(),
         // So the web UI can tell a live worker from an aborted CLI/Ctrl-C leftover.
         "pid": std::process::id(),
+        // Epoch seconds for trigger grace / stale age (not the id suffix string).
+        "started_unix": started_unix,
     });
     if let Some(ts) = started_at {
         s["started_at"] = serde_json::json!(ts);
