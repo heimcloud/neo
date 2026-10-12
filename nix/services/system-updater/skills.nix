@@ -37,19 +37,23 @@
         3. Inspect GC setting `garbageCollectOlderThen` (default 30d; null disables GC)
         4. With GC on, `nix.settings.keep-outputs` is enabled so live build-time outputs stay until their generation ages out
         5. `activationMode`: `switch` (default, live nixos-rebuild switch) or `boot` (nixos-rebuild boot only — profile advances, running system until reboot). Prefer `boot` on edge boxes where unattended live switch freezes dhcpcd/journald. Interactive web Activate stays switch unless you pass the flag.
-        6. Run history is this service's appdata `${updaterDir}/system/` (`<utc>-<pid>.json` + `.log`). JSON records `activation_mode` and `reboot_pending` (profile vs `/run/current-system`). `${updaterDir}/system/last.json` is retargeted at run start (in-progress stub) so a crash never leaves it on an older run. Clear appdata in Neo web wipes the history.
-        7. If Hermes `superviseUpdates` is on: Hermes notifies on failure/warnings and never auto-rollbacks the generation
+        6. `rebootAfterBoot` (default true, UI only when mode=boot): after a successful scheduled boot activate that changed the system profile, schedule a delayed (~60s) host reboot so the new generation becomes live. Set false to leave "reboot later" manual. Never cycles on switch mode, failed activate, or no-op updates.
+        7. Run history is this service's appdata `${updaterDir}/system/` (`<utc>-<pid>.json` + `.log`). JSON records `activation_mode`, `reboot_pending` (profile vs `/run/current-system`), and when a delayed cycle was armed `reboot_scheduled` + `reboot_scheduled_at`. `${updaterDir}/system/last.json` is retargeted at run start (in-progress stub) so a crash never leaves it on an older run. Clear appdata in Neo web wipes the history.
+        8. If Hermes `superviseUpdates` is on: Hermes notifies on failure/warnings and never auto-rollbacks the generation
 
         ## Pitfalls
         - Updates can break services; prefer dry-run when testing major changes
         - Ensure config repo is healthy before scheduled activate
         - GC without keep-outputs deletes unrooted build-time deps (slow Rust rebuilds)
-        - With `activationMode=boot`, a successful run leaves `reboot_pending=true` until reboot; do not treat profile change alone as "already live"
+        - With `activationMode=boot` and `rebootAfterBoot=false`, a successful run leaves `reboot_pending=true` until a manual reboot; do not treat profile change alone as "already live"
+        - Freeze-prone edge boxes: use `activationMode=boot` + `rebootAfterBoot=true` (default) so unattended updates finish without a live switch
 
         ## Verification
         - Timer active; last run logs clean; system generation recent
-        - mode=switch: `/run/current-system` matches profile after run
-        - mode=boot: profile points at new gen, running still old until reboot; `failed=false` when boot succeeds
+        - mode=switch: `/run/current-system` matches profile after run; no auto host cycle from this option
+        - mode=boot + rebootAfterBoot: profile advanced → hist `reboot_pending` and `reboot_scheduled`; host cycles ~1 min later; after boot `/run/current-system` matches profile
+        - mode=boot + rebootAfterBoot=false: profile advanced, running old until manual reboot; `failed=false` when boot succeeds
+        - no-op or failed activate: no host cycle
       '';
     };
   };

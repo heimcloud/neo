@@ -123,7 +123,8 @@ pub struct OptionUi {
         rename = "choiceLabels"
     )]
     pub choice_labels: Option<std::collections::BTreeMap<String, String>>,
-    /// Sibling bool option (relative name) that must be true for this field to show.
+    /// Sibling option (relative name) that gates visibility: bool must be true, or
+    /// `name=value` for string/enum equality (resolved to an absolute name in sections).
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -239,6 +240,7 @@ pub struct OptionSchema {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub crumb: String,
     /// Absolute option name of ui.visibleWhen (resolved against this option's parent).
+    /// May be `parent.sibling` (bool) or `parent.sibling=value` (equality).
     #[serde(
         default,
         skip_serializing_if = "String::is_empty",

@@ -395,10 +395,18 @@ function optionForm() {
       return (names || []).filter((n) => n in (this.defaults || {}) && !this.isAtDefault(n)).length;
     },
 
-    /** ui.visibleWhen (resolved to an absolute name in Rust): hide while that bool is false. */
+    /** ui.visibleWhen (absolute name from Rust): hide while false, or while != value for "name=value". */
     isFieldVisible(name) {
       const dep = this.optionsByName[name]?.visibleWhen;
-      if (!dep || !(dep in (this.values || {}))) return true;
+      if (!dep) return true;
+      const eq = dep.indexOf('=');
+      if (eq !== -1) {
+        const key = dep.slice(0, eq);
+        const want = dep.slice(eq + 1);
+        if (!(key in (this.values || {}))) return true;
+        return String(this.values[key]) === want;
+      }
+      if (!(dep in (this.values || {}))) return true;
       return !!this.values[dep];
     },
 

@@ -39,8 +39,9 @@
 #   label        — human label (default: humanized last path segment).
 #   summary      — show this option's value as a chip on the collapsed group.
 #   choiceLabels — display names for enum / ui.choices values ({ web = "Internet"; }).
-#   visibleWhen  — sibling bool option name; the field hides while it is false
+#   visibleWhen  — sibling option name; the field hides while that bool is false
 #                  (e.g. auth.publicPaths only while auth.enabled).
+#                  Or "sibling=value" for string/enum equality (e.g. activationMode=boot).
 #
 # ## keysFrom
 #

@@ -62,6 +62,6 @@ neo --dry-run activate
 neo activate --mode boot   # build + boot default only; reboot later
 ```
 
-Scheduled system-updater uses `services.system-updater.activationMode` (`switch` or `boot`). Interactive `neo activate` and web Activate stay on live switch unless you pass `--mode` / `NEO_ACTIVATION_MODE`.
+Scheduled system-updater uses `services.system-updater.activationMode` (`switch` or `boot`). With `boot`, `rebootAfterBoot` (default true) schedules a delayed host reboot after a successful profile-changing activate so the new generation actually runs. Interactive `neo activate` and web Activate stay on live switch unless you pass `--mode` / `NEO_ACTIVATION_MODE`, and never auto-cycle from this option.
 
 Developers building Neo itself: [AGENTS.md](../AGENTS.md).

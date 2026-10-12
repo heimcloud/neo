@@ -28,7 +28,7 @@
                 description = ''
                   How scheduled activate applies the new generation.
                   switch (default): live nixos-rebuild switch — running system becomes the new generation immediately.
-                  boot: nixos-rebuild boot only — sets the boot default; the running system stays on the old generation until reboot (avoids unattended live restarts of dhcpcd/journald and similar freezes on edge boxes). Interactive neo activate and the web Activate button stay on switch unless you pass --mode boot / NEO_ACTIVATION_MODE=boot.
+                  boot: nixos-rebuild boot only — sets the boot default without a live switch (avoids unattended restarts of dhcpcd/journald and similar freezes on edge boxes). Pair with rebootAfterBoot to apply the new generation after a short delay. Interactive neo activate and the web Activate button stay on switch unless you pass --mode boot / NEO_ACTIVATION_MODE=boot.
                 '';
                 rank = 15;
                 ui = lib.neo.ui.mkUi {
@@ -36,8 +36,20 @@
                   summary = true;
                   choiceLabels = {
                     switch = "Live switch";
-                    boot = "Boot only (reboot later)";
+                    boot = "Boot (no live switch)";
                   };
+                };
+              };
+              rebootAfterBoot = mkOption {
+                type = types.bool;
+                default = true;
+                description = ''
+                  When activationMode is boot: after a successful scheduled activate that advanced the system profile, schedule a delayed host reboot so the new generation becomes /run/current-system. Default true for unattended edge boxes. Skipped on failed activate, no-op updates (profile unchanged), and always ignored when activationMode is switch. Interactive web Activate does not use this option. Reboot is delayed (~60s) so run history and OnSuccess supervise hooks can start first.
+                '';
+                rank = 16;
+                ui = lib.neo.ui.mkUi {
+                  label = "Restart host after boot activate";
+                  visibleWhen = "activationMode=boot";
                 };
               };
               garbageCollectOlderThen = mkOption {
@@ -56,7 +68,7 @@
               description = ''
                 Periodically runs neo update + activate so system packages and Neo modules stay current.
                 When enabled, a systemd timer runs scheduled upgrades (with optional nix garbage collection).
-                activationMode=boot builds and sets the next boot default without a live switch (safer on boxes where unattended switch freezes networking).
+                activationMode=boot builds and sets the next boot default without a live switch (safer on boxes where unattended switch freezes networking); rebootAfterBoot (default true) then schedules a delayed host reboot so the new generation actually runs.
                 The configuration repository is created by neo-bootstrap on the neo web service, which stays enabled when this timer is off.
                 CLI path and neo input settings live under neo-cli. Updates use the server profile (configPath and neoInput). This option only controls whether automatic system updates run.
               '';

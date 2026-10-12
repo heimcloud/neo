@@ -104,9 +104,21 @@ pub fn label_options(opts: &mut [OptionSchema]) {
             o.ui.as_ref()
                 .and_then(|u| u.visible_when.as_deref())
                 .filter(|s| !s.is_empty())
-                .map(|sib| match parent {
-                    Some(p) => format!("{p}.{sib}"),
-                    None => sib.to_string(),
+                .map(|spec| {
+                    // "sibling" → parent.sibling (bool truthy).
+                    // "sibling=value" → parent.sibling=value (string equality).
+                    let (sib, value) = match spec.split_once('=') {
+                        Some((s, v)) => (s, Some(v)),
+                        None => (spec, None),
+                    };
+                    let abs = match parent {
+                        Some(p) => format!("{p}.{sib}"),
+                        None => sib.to_string(),
+                    };
+                    match value {
+                        Some(v) => format!("{abs}={v}"),
+                        None => abs,
+                    }
                 })
                 .unwrap_or_default();
         let labels = o.ui.as_ref().and_then(|u| u.choice_labels.clone());
@@ -238,6 +250,21 @@ mod tests {
         let choices = opts[2].r#type.choices.as_ref().unwrap();
         assert_eq!(choices[0].label, "local");
         assert_eq!(choices[1].label, "Internet");
+    }
+
+    #[test]
+    fn visible_when_equality_resolves_parent_and_keeps_value() {
+        let mut opts = vec![opt(serde_json::json!({
+            "name": "services.system-updater.rebootAfterBoot",
+            "type": {"kind": "bool"},
+            "typeLabel": "bool",
+            "ui": {"label": "Restart host after boot activate", "visibleWhen": "activationMode=boot"}
+        }))];
+        label_options(&mut opts);
+        assert_eq!(
+            opts[0].visible_when,
+            "services.system-updater.activationMode=boot"
+        );
     }
 
     #[test]
