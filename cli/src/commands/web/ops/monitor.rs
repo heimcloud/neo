@@ -18,7 +18,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use super::kind::id_timestamp;
-use super::store::state_path;
+use super::store::{reap_stale_in_progress, state_path};
 use crate::commands::web::util::{escape_attr, escape_html, op_id_ok};
 use crate::utils::ops::OperationKind;
 
@@ -54,6 +54,8 @@ fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
 /// Raw op JSON (for change detection) plus the client `state` message.
 /// `None` when the op has no state file (garbage-collected or never started).
 pub fn read_state_message(id: &str) -> Option<(String, Value)> {
+    // Finish aborted CLI/web jobs so an open monitor does not stay in_progress.
+    reap_stale_in_progress();
     let kind = OperationKind::from_id(id)?;
     let raw = fs::read_to_string(state_path(id)).ok()?;
     let v: Value = serde_json::from_str(&raw).ok()?;

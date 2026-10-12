@@ -68,6 +68,9 @@ pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<(
             neo_input_for_eval, app_config.settings_path
         );
 
+        // Drop aborted activate/update markers left as in_progress after Ctrl-C.
+        ops::store::gc_old_ops();
+
         // Push action-bar OOB updates (pending changes, reset, nix-busy) over the shared WS
         // whenever state changes — replaces the old client-side every-20s polling.
         start_action_bar_watcher(app_config.clone());

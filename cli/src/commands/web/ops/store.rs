@@ -49,7 +49,15 @@ fn mark_op_aborted(id: &str, v: &serde_json::Value) {
     let started = v.get("started_at").and_then(|x| x.as_str());
     let branch = v.get("branch").and_then(|x| x.as_str());
     let err = "operation is no longer running (aborted or process exited)";
-    write_op_state(id, "failed", phase, Some(err), branch, started, None);
+    // Keep genswitch fields the monitor shows after terminal state.
+    let mut extra = serde_json::Map::new();
+    for key in ["generation", "mode"] {
+        if let Some(val) = v.get(key) {
+            extra.insert(key.to_string(), val.clone());
+        }
+    }
+    let extra = (!extra.is_empty()).then(|| serde_json::Value::Object(extra));
+    write_op_state(id, "failed", phase, Some(err), branch, started, extra);
     append_log(&log_path(id), &format!("marked failed: {err}"));
 }
 

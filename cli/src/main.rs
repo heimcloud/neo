@@ -26,7 +26,7 @@ use crate::commands::{
 use crate::utils::locks::{LockError, LockGuard, LockManager, LockSpec, OpInfo};
 use crate::utils::{
     execute_command, load_or_default_settings, resolve_config_path, resolve_profile,
-    set_profile_str, OperationKind, OperationLog,
+    resolve_suffix, set_profile_str, OperationKind, OperationLog,
 };
 
 #[derive(Parser)]
@@ -167,6 +167,23 @@ fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
+    // Pin activate/update op ids before the lock so the lock holder and the
+    // JSON under /tmp/neo-activations share one id (plain CLI used to leave the
+    // lock untracked; abort then left a permanent in_progress ghost in the UI).
+    // After the homeserver re-exec above so parent/child do not mint different ids.
+    let command = match command {
+        Commands::Activate { activation_suffix } => Commands::Activate {
+            activation_suffix: Some(resolve_suffix(
+                activation_suffix.as_deref(),
+                "NEO_ACTIVATION_SUFFIX",
+            )),
+        },
+        Commands::Update { update_suffix } => Commands::Update {
+            update_suffix: Some(resolve_suffix(update_suffix.as_deref(), "NEO_UPDATE_SUFFIX")),
+        },
+        other => other,
+    };
+
     let mut doc = load_or_default_settings(&settings_path)?;
     // Overrides apply to the active profile so a server command does not
     // inherit a laptop path written on the shared table.
@@ -256,8 +273,9 @@ fn run(cli: Cli) -> Result<()> {
 fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<OperationLog>)> {
     let system =
         |kind: &str, label: &str| Some((LockSpec::system_change(), OpInfo::new(kind, label), None));
-    // Set when the web UI started this command (its monitor must see a lock failure).
-    let web_op = |kind: OperationKind, suffix: Option<String>| {
+    // Op log for lock `op_id` + lock-failure state. Activate/update suffixes are
+    // resolved in `run` so CLI and web always pass a non-empty id here.
+    let tracked_op = |kind: OperationKind, suffix: Option<String>| {
         suffix
             .filter(|s| !s.is_empty())
             .map(|s| OperationLog::new(kind, &s))
@@ -272,17 +290,17 @@ fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<Operatio
     match command {
         Commands::Activate { activation_suffix } => with_op(
             system("activation", "Activation")?,
-            web_op(OperationKind::Activation, activation_suffix.clone()),
+            tracked_op(OperationKind::Activation, activation_suffix.clone()),
         ),
         Commands::Update { update_suffix } => with_op(
             system("update", "Update")?,
-            web_op(OperationKind::Update, update_suffix.clone()),
+            tracked_op(OperationKind::Update, update_suffix.clone()),
         ),
         Commands::Generation {
             action: Some(GenerationAction::Switch { .. } | GenerationAction::Boot { .. }),
         } => with_op(
             system("generation", "Generation switch")?,
-            web_op(
+            tracked_op(
                 OperationKind::Generation,
                 env::var("NEO_GENSWITCH_SUFFIX").ok(),
             ),
