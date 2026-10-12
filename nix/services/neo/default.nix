@@ -129,6 +129,12 @@
             NEO_HELPER_BASH = "${pkgs.bash}/bin/bash";
             ZFS_BINARY_PATH = lib.optionalString zfsEnabled "${config.boot.zfs.package}/bin/zfs";
             RSYNC_BINARY_PATH = lib.optionalString zfsEnabled "${pkgs.rsync}/bin/rsync";
+            # neo flake source this system was built from. neo-web's option extract
+            # overrides the host config's locked `neo` input with this path so the
+            # Settings UI matches the running generation (lab tests use
+            # --override-input without rewriting flake.lock; plain getFlake would
+            # still show the locked, pre-lab options).
+            NEO_FLAKE_PATH = toString self;
             # Explicit tool dirs for option helpers (used ahead of ambient PATH).
             NEO_HELPER_PATH = lib.makeBinPath [
               pkgs.bash

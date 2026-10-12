@@ -99,12 +99,17 @@ pub struct ConfigurationPageContext {
     #[serde(flatten)]
     pub eval_error: EvalErrorUi,
     /// Partial URL loaded into `#config-content` on first paint (HTMX GET).
+    /// Unused when `initial_content_html` is already set (deep-linked option/core pane).
     pub initial_content_url: String,
     /// Active tab seed: services | settings | versioning.
     pub initial_tab: String,
     /// Optional breadcrumb detail (service/section name) before first swap settles.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_detail: Option<String>,
+    /// Server-rendered option/core pane HTML for full-page deep links so labels and
+    /// fields are in the first response (no HTMX round-trip / works without JS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_content_html: Option<String>,
 }
 
 impl Default for ConfigurationPageContext {
@@ -115,6 +120,7 @@ impl Default for ConfigurationPageContext {
             initial_content_url: "/configuration".to_string(),
             initial_tab: "services".to_string(),
             initial_detail: None,
+            initial_content_html: None,
         }
     }
 }

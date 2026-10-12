@@ -32,6 +32,10 @@ pub struct NixEvaluator {
     stdout: BufReader<tokio::process::ChildStdout>,
     nix_cmd: String,
     neo_input: String,
+    /// Store path of the neo flake this system was built from (`NEO_FLAKE_PATH`).
+    /// When set, the repl loads the host config with `--override-input neo` so
+    /// option extract matches the running generation (not a stale flake.lock).
+    neo_flake_path: Option<String>,
     eval_dir: PathBuf,
     busy: Arc<AtomicBool>,
     last_config_mtime: SystemTime,
@@ -43,6 +47,7 @@ impl std::fmt::Debug for NixEvaluator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NixEvaluator")
             .field("neo_input", &self.neo_input)
+            .field("neo_flake_path", &self.neo_flake_path)
             .field("eval_dir", &self.eval_dir)
             .finish()
     }
@@ -62,14 +67,21 @@ impl NixEvaluator {
         let eval_dir = std::env::temp_dir().join(format!("neo-nix-repl-{}", pid));
         write_extract_files(&eval_dir)?;
 
+        let neo_flake_path = std::env::var("NEO_FLAKE_PATH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && PathBuf::from(s).is_dir());
+
         let stderr_buf = Arc::new(Mutex::new(String::new()));
-        let (child, stdin, stdout, stderr) = Self::spawn_repl_process(nix_cmd)?;
+        let (child, stdin, stdout, stderr) =
+            Self::spawn_repl_process(nix_cmd, neo_input, neo_flake_path.as_deref())?;
         let mut this = NixEvaluator {
             child,
             stdin,
             stdout,
             nix_cmd: nix_cmd.to_string(),
             neo_input: neo_input.to_string(),
+            neo_flake_path,
             eval_dir,
             busy: busy.clone(),
             // Set after initialize so getFlake / first force cannot look "stale".
@@ -83,8 +95,27 @@ impl NixEvaluator {
         Ok(this)
     }
 
+    /// Resolve a filesystem path for a `path:` flake URL (absolute, no NUL).
+    fn path_flake_url(path: &str) -> Result<String> {
+        let p = PathBuf::from(path);
+        let abs = if p.is_absolute() {
+            p
+        } else {
+            std::env::current_dir()
+                .with_context(|| format!("cwd for path flake {path}"))?
+                .join(p)
+        };
+        let s = abs.to_str().context("path flake is not valid UTF-8")?;
+        if s.contains('\0') || s.chars().any(|c| c.is_control()) {
+            bail!("path flake has control characters: {s}");
+        }
+        Ok(format!("path:{s}"))
+    }
+
     fn spawn_repl_process(
         nix_cmd: &str,
+        config_dir: &str,
+        neo_flake_path: Option<&str>,
     ) -> Result<(
         Child,
         tokio::process::ChildStdin,
@@ -92,13 +123,28 @@ impl NixEvaluator {
         BufReader<ChildStderr>,
     )> {
         let mut cmd = TokioCommand::new(nix_cmd);
-        cmd.args([
-            "repl",
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "--impure",
-            "--quiet",
-        ]);
+        let mut args: Vec<String> = vec![
+            "repl".into(),
+            "--extra-experimental-features".into(),
+            "nix-command flakes".into(),
+            "--impure".into(),
+            "--quiet".into(),
+        ];
+        // Load the host config flake with neo overridden to the running system's
+        // neo source. builtins.getFlake ignores CLI overrides, so the installable
+        // must be the config path itself.
+        if let Some(neo_src) = neo_flake_path {
+            let neo_url = Self::path_flake_url(neo_src)?;
+            let cfg_url = Self::path_flake_url(config_dir)?;
+            args.push("--override-input".into());
+            args.push("neo".into());
+            args.push(neo_url);
+            args.push(cfg_url);
+            println!(
+                "web: nix repl will load host flake with --override-input neo → {neo_src}"
+            );
+        }
+        cmd.args(&args);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -269,6 +315,13 @@ impl NixEvaluator {
     }
 
     async fn initialize_repl_inner(&mut self) -> Result<()> {
+        // Flake load via CLI installable (override-input path) can take a long time
+        // on a cold cache; allow up to 10 minutes before the first handshake marker.
+        let handshake = if self.neo_flake_path.is_some() {
+            Duration::from_secs(600)
+        } else {
+            Duration::from_secs(30)
+        };
         for _ in 0..40 {
             let mut line = String::new();
             if timeout(Duration::from_millis(30), self.stdout.read_line(&mut line))
@@ -279,7 +332,7 @@ impl NixEvaluator {
             }
         }
 
-        self.print_marker("REPL_READY_FOR_BINDINGS", Duration::from_secs(30))
+        self.print_marker("REPL_READY_FOR_BINDINGS", handshake)
             .await
             .context("repl handshake")?;
 
@@ -293,16 +346,32 @@ impl NixEvaluator {
         .await
         .context("bind configDir")?;
 
-        // getFlake is often silent on stdout for a long time. Marker is queued *after*
-        // the assignment so we only proceed once f is actually bound in the repl.
-        println!("web: binding flake f via builtins.getFlake (once per repl process)…");
-        self.bind_then_marker(
-            r#"f = builtins.getFlake (builtins.toString (/. + configDir))"#,
-            "F_BOUND",
-            Duration::from_secs(600),
-        )
-        .await
-        .context("bind flake f")?;
+        // Prefer the installable loaded with --override-input neo (matches the
+        // running system). builtins.getFlake ignores CLI overrides and would
+        // show locked options from flake.lock instead.
+        if self.neo_flake_path.is_some() {
+            println!(
+                "web: binding flake f from CLI-loaded installable (neo overridden to running system)…"
+            );
+            self.bind_then_marker(
+                r#"f = { inherit nixosConfigurations; }"#,
+                "F_BOUND",
+                Duration::from_secs(60),
+            )
+            .await
+            .context("bind flake f from installable")?;
+        } else {
+            // getFlake is often silent on stdout for a long time. Marker is queued *after*
+            // the assignment so we only proceed once f is actually bound in the repl.
+            println!("web: binding flake f via builtins.getFlake (once per repl process)…");
+            self.bind_then_marker(
+                r#"f = builtins.getFlake (builtins.toString (/. + configDir))"#,
+                "F_BOUND",
+                Duration::from_secs(600),
+            )
+            .await
+            .context("bind flake f")?;
+        }
         println!(
             "web: flake f bound (memoized in this nix repl process until config mtime refresh)"
         );
@@ -427,8 +496,11 @@ impl NixEvaluator {
     pub async fn refresh(&mut self) -> Result<()> {
         self.busy.store(true, Ordering::Relaxed);
         let _ = self.child.start_kill();
-        let (new_child, new_stdin, new_stdout, new_stderr) =
-            Self::spawn_repl_process(&self.nix_cmd)?;
+        let (new_child, new_stdin, new_stdout, new_stderr) = Self::spawn_repl_process(
+            &self.nix_cmd,
+            &self.neo_input,
+            self.neo_flake_path.as_deref(),
+        )?;
 
         let mut old_child = mem::replace(&mut self.child, new_child);
         let old_stdin = mem::replace(&mut self.stdin, new_stdin);
