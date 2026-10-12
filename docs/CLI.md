@@ -59,9 +59,9 @@ SSH to a finished host as **`homeserver@…`** for `neo` (or **`admin@…`** if 
 neo web                 # UI
 neo update && neo activate
 neo --dry-run activate
-neo activate --mode boot   # build + boot default only; reboot later
+neo activate --mode boot   # build + boot default only; reboot later (manual)
 ```
 
-Scheduled system-updater uses `services.system-updater.activationMode` (`switch` or `boot`). Interactive `neo activate` and web Activate stay on live switch unless you pass `--mode` / `NEO_ACTIVATION_MODE`.
+Scheduled system-updater uses `services.system-updater.activationMode` (`switch` or `boot`). With `activationMode=boot`, `rebootAfterBoot` (default true) schedules a delayed host restart after a successful run that advanced the system profile so the new generation becomes live; set it false to leave reboot manual. Interactive `neo activate` and web Activate stay on live switch unless you pass `--mode` / `NEO_ACTIVATION_MODE`, and never auto-cycle the host from this option.
 
 Developers building Neo itself: [AGENTS.md](../AGENTS.md).
